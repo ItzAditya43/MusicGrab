@@ -1,0 +1,64 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "musicgrab"
+version = "1.0.0"
+description = "A CLI music downloader and library tool"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [
+    { name = "MusicGrab" }
+]
+keywords = ["music", "downloader", "cli", "youtube", "spotify", "audio"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Multimedia :: Sound/Audio",
+    "Topic :: Internet :: WWW/HTTP",
+]
+
+dependencies = [
+    "yt-dlp>=2024.1.0",
+    "spotipy>=2.23.0",
+    "mutagen>=1.47.0",
+    "rich>=13.7.0",
+    "click>=8.1.7",
+    "requests>=2.31.0",
+    "pillow>=10.2.0",
+    "fastapi>=0.110.0",
+    "uvicorn>=0.27.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "black>=24.0.0",
+    "ruff>=0.1.0",
+]
+
+[project.scripts]
+musicgrab = "musicgrab.cli:main"
+musicgrab-web = "musicgrab.webapp:run"
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[tool.black]
+line-length = 100
+target-version = ["py39"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+select = ["E", "W", "F", "I", "B", "C4", "UP"]
