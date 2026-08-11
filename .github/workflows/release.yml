@@ -185,3 +185,103 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: musicgrab-android.apk
+
+  # No physical Android device is available anywhere in this workflow, so
+  # every previous "the Android build works" claim only meant "it compiled
+  # and packaged" — never that it actually runs. This job closes that gap:
+  # it boots a real (KVM-accelerated, x86_64) emulator on the runner,
+  # installs the just-built APK, launches it, and screenshots it at a few
+  # points so the UI can actually be inspected instead of assumed.
+  test-android-emulator:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK
+        run: sdkmanager --install "ndk;27.0.12077973"
+
+      - name: Set up Rust with x86_64 Android target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-linux-android
+
+      - name: Rust build cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          shared-key: android-emulator-test
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Initialize Android project
+        env:
+          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
+        run: cargo tauri android init --ci
+
+      # x86_64, not aarch64 — the real release APK targets phones, but the
+      # emulator needs an x86_64 build to run at a usable speed on these
+      # (x86_64) runners via KVM.
+      - name: Build debug APK for the emulator (x86_64)
+        env:
+          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
+        run: cargo tauri android build --debug --target x86_64
+
+      - name: Locate emulator-target APK
+        run: |
+          apk=$(find src-tauri/gen/android -path "*x86_64*.apk" | head -1)
+          echo "Found: $apk"
+          cp "$apk" musicgrab-android-x86_64-debug.apk
+
+      - name: Enable KVM for hardware-accelerated emulation
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run on emulator and screenshot the UI
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          force-avd-creation: false
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: |
+            adb install musicgrab-android-x86_64-debug.apk
+            adb shell am start -n app.musicgrab.mobile/.MainActivity
+            sleep 8
+            mkdir -p screenshots
+            adb exec-out screencap -p > screenshots/01-home.png
+
+            # Tap the bottom tab bar's "Your Library" position (3rd of 5
+            # tabs) and "Search" (2nd of 5), screenshotting each — proves
+            # navigation actually responds to touch, not just that it
+            # renders.
+            read w h <<< $(adb shell wm size | grep -oE '[0-9]+x[0-9]+' | tr 'x' ' ')
+            bar_y=$((h - 60))
+            adb shell input tap $((w * 3 / 10)) $bar_y
+            sleep 2
+            adb exec-out screencap -p > screenshots/02-search-tab.png
+            adb shell input tap $((w * 5 / 10)) $bar_y
+            sleep 2
+            adb exec-out screencap -p > screenshots/03-library-tab.png
+
+            adb logcat -d > screenshots/logcat.txt
+
+      - name: Upload emulator screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-emulator-screenshots
+          path: screenshots/
