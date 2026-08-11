@@ -3,8 +3,13 @@
 # MusicGrab
 
 A self-hosted music downloader, library manager, and player for YouTube and Spotify — usable
-either as a CLI tool or as a local web app with a persistent player bar.
+as a CLI tool, a local web app, or a native desktop app.
 
+**Desktop app (Linux .deb / AppImage, Windows .msi / .exe):** grab the latest build from the
+[Releases page](https://github.com/ItzAditya43/MusicGrab/releases). ffmpeg is required (the
+.deb declares it as a dependency; install it separately on Windows).
+
+**Web app:**
 ```
 musicgrab-web
 # open http://127.0.0.1:8765
@@ -148,8 +153,12 @@ DevTools protocol to click play and open the lyrics panel, and screenshotting th
 - **Metadata embedding** — title, artist, album, track/disc number, year, genre
 - **Album artwork** — fetched, embedded, and saved alongside downloads
 - **Local library** — scan, search, stats, and artist/album organization
-- **Web app** — sidebar navigation, live download progress, and a persistent player bar,
-  installable as a standalone desktop app on both Windows and Linux (see below)
+- **Web app** — sidebar navigation, live download progress, and a persistent player bar
+- **Native desktop app** — real Tauri (Rust) app for Linux and Windows, built by CI on every
+  release; see [Releases](https://github.com/ItzAditya43/MusicGrab/releases)
+- **20 color themes + 15 animated backgrounds** — Settings > Appearance, live-preview on hover,
+  persisted across restarts; every theme meets WCAG AA contrast
+  (`scripts/check_theme_contrast.py`)
 - **Synced lyrics** — fetched on demand from [lrclib.net](https://lrclib.net) (free, no API key),
   with the current line highlighted as the track plays; falls back to plain lyrics when no synced
   version exists
