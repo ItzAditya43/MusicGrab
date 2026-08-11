@@ -124,6 +124,20 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      # Debug-signed APKs are keyed by whatever ~/.android/debug.keystore
+      # happens to exist at build time. Every CI run starts on a fresh
+      # runner with no such file, so Gradle silently generates a brand new
+      # one each release — meaning each APK is signed with a different key
+      # and Android refuses to install it over the previous version (fails
+      # silently, leaving the old app in place with no clear error). Cache
+      # the keystore under a fixed key (not content-hashed) so every build
+      # reuses the same one and updates actually install cleanly.
+      - name: Restore/persist a stable debug keystore
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: android-debug-keystore-v1
+
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
