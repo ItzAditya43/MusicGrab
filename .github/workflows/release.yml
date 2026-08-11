@@ -286,7 +286,14 @@ jobs:
             # session, so variables set on one line don't exist on the
             # next — confirmed by the previous run logging w='' h=''
             # despite the assignment line itself succeeding in isolation.
-            size=$(adb shell wm size | grep -oE '[0-9]+x[0-9]+' | head -1 | tr -d '\r'); w=$(echo "$size" | cut -dx -f1); h=$(echo "$size" | cut -dx -f2); echo "screen size: raw='$size' w='$w' h='$h'"; bar_y=$((h - 60)); tap_x_search=$((w * 3 / 10)); tap_x_library=$((w * 5 / 10)); echo "tapping search at $tap_x_search,$bar_y"; adb shell input tap $tap_x_search $bar_y; sleep 2; adb exec-out screencap -p > screenshots/02-search-tab.png; echo "tapping library at $tap_x_library,$bar_y"; adb shell input tap $tap_x_library $bar_y; sleep 2; adb exec-out screencap -p > screenshots/03-library-tab.png
+            #
+            # bar_y = h - 124, not h - 60: the mobile layout reserves 64px
+            # for the nav bar *and* 92px for the player bar below it
+            # (app.css's max-width:720px rules), so the nav bar's vertical
+            # center sits well above the very bottom edge — h - 60 landed
+            # in the player bar instead, which explained three identical
+            # "still on Home" screenshots despite the taps executing fine.
+            size=$(adb shell wm size | grep -oE '[0-9]+x[0-9]+' | head -1 | tr -d '\r'); w=$(echo "$size" | cut -dx -f1); h=$(echo "$size" | cut -dx -f2); echo "screen size: raw='$size' w='$w' h='$h'"; bar_y=$((h - 124)); tap_x_search=$((w * 3 / 10)); tap_x_library=$((w * 5 / 10)); echo "tapping search at $tap_x_search,$bar_y"; adb shell input tap $tap_x_search $bar_y; sleep 2; adb exec-out screencap -p > screenshots/02-search-tab.png; echo "tapping library at $tap_x_library,$bar_y"; adb shell input tap $tap_x_library $bar_y; sleep 2; adb exec-out screencap -p > screenshots/03-library-tab.png
 
             adb logcat -d > screenshots/02-logcat-final.txt
 
