@@ -126,6 +126,7 @@ pub fn run() {
         #[cfg(target_os = "android")]
         let url = WebviewUrl::App("index.html".into());
 
+        #[allow(unused_mut)] // only mutated further in the #[cfg(desktop)] block below
         let mut win_builder = tauri::WebviewWindowBuilder::new(app, "main", url)
             .title("MusicGrab")
             .on_navigation(|_url| true);
