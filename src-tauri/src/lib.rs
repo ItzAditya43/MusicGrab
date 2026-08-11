@@ -1,101 +1,164 @@
-use std::net::TcpStream;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use tauri::WebviewUrl;
 
-use tauri::{Manager, RunEvent};
-use tauri_plugin_shell::process::{CommandChild, CommandEvent};
-use tauri_plugin_shell::ShellExt;
+#[cfg(desktop)]
+mod desktop {
+    use std::net::TcpStream;
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
 
-const SERVER_ADDR: &str = "127.0.0.1:8765";
+    use tauri::Manager;
+    use tauri_plugin_shell::process::{CommandChild, CommandEvent};
+    use tauri_plugin_shell::ShellExt;
 
-struct SidecarHandle(Arc<Mutex<Option<CommandChild>>>);
+    pub const SERVER_ADDR: &str = "127.0.0.1:8765";
 
-fn wait_for_server() -> bool {
-    for _ in 0..150 {
-        // ~30s at 200ms steps
-        if TcpStream::connect_timeout(
-            &SERVER_ADDR.parse().expect("valid socket addr"),
-            Duration::from_millis(200),
-        )
-        .is_ok()
-        {
-            return true;
+    pub struct SidecarHandle(pub Arc<Mutex<Option<CommandChild>>>);
+
+    fn wait_for_server() -> bool {
+        for _ in 0..150 {
+            // ~30s at 200ms steps
+            if TcpStream::connect_timeout(
+                &SERVER_ADDR.parse().expect("valid socket addr"),
+                Duration::from_millis(200),
+            )
+            .is_ok()
+            {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(200));
         }
-        std::thread::sleep(Duration::from_millis(200));
+        false
     }
-    false
+
+    // Desktop only: spawn the Python backend as a sidecar and reveal the
+    // window (created hidden in run()) once it's actually accepting
+    // connections. Mobile has no sidecar process model — see run()'s
+    // mobile branch, which instead loads a static "connect to your PC"
+    // page bundled in the app.
+    pub fn spawn_backend(app: &tauri::App) {
+        let (mut rx, child) = app
+            .shell()
+            .sidecar("musicgrab-web")
+            .expect("failed to resolve musicgrab-web sidecar")
+            .spawn()
+            .expect("failed to spawn musicgrab-web backend");
+
+        app.manage(SidecarHandle(Arc::new(Mutex::new(Some(child)))));
+
+        // Forward backend stdout/stderr to the app log instead of
+        // discarding it, so download/server errors are visible in
+        // `tauri dev` and the OS-level log on a packaged build.
+        tauri::async_runtime::spawn(async move {
+            while let Some(event) = rx.recv().await {
+                match event {
+                    CommandEvent::Stdout(line) => {
+                        log::info!("[musicgrab-web] {}", String::from_utf8_lossy(&line));
+                    }
+                    CommandEvent::Stderr(line) => {
+                        log::warn!("[musicgrab-web] {}", String::from_utf8_lossy(&line));
+                    }
+                    _ => {}
+                }
+            }
+        });
+
+        // Don't show a blank window while the backend is still booting;
+        // poll until it accepts connections, then reveal it.
+        let window = app
+            .get_webview_window("main")
+            .expect("main window must exist");
+        std::thread::spawn(move || {
+            // The webview starts loading SERVER_ADDR immediately on window
+            // creation, racing the sidecar's startup — it can load a
+            // "connection refused" page before the backend is actually
+            // listening. Force a reload once the port is confirmed open,
+            // then reveal the (now-correct) window.
+            wait_for_server();
+            let _ = window.eval("window.location.reload()");
+            std::thread::sleep(Duration::from_millis(150));
+            let _ = window.show();
+            let _ = window.set_focus();
+        });
+    }
+
+    pub fn kill_backend(app_handle: &tauri::AppHandle) {
+        if let Some(handle) = app_handle.try_state::<SidecarHandle>() {
+            if let Some(child) = handle.0.lock().unwrap().take() {
+                let _ = child.kill();
+            }
+        }
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_shell::init())
-        .setup(|app| {
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
+    let mut builder = tauri::Builder::default();
 
-            let (mut rx, child) = app
-                .shell()
-                .sidecar("musicgrab-web")
-                .expect("failed to resolve musicgrab-web sidecar")
-                .spawn()
-                .expect("failed to spawn musicgrab-web backend");
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_shell::init());
+    }
 
-            app.manage(SidecarHandle(Arc::new(Mutex::new(Some(child)))));
+    builder = builder.setup(|app| {
+        if cfg!(debug_assertions) {
+            app.handle().plugin(
+                tauri_plugin_log::Builder::default()
+                    .level(log::LevelFilter::Info)
+                    .build(),
+            )?;
+        }
 
-            // Forward backend stdout/stderr to the app log instead of
-            // discarding it, so download/server errors are visible in
-            // `tauri dev` and the OS-level log on a packaged build.
-            tauri::async_runtime::spawn(async move {
-                while let Some(event) = rx.recv().await {
-                    match event {
-                        CommandEvent::Stdout(line) => {
-                            log::info!("[musicgrab-web] {}", String::from_utf8_lossy(&line));
-                        }
-                        CommandEvent::Stderr(line) => {
-                            log::warn!("[musicgrab-web] {}", String::from_utf8_lossy(&line));
-                        }
-                        _ => {}
-                    }
+        // The window is built in code (not declared in tauri.conf.json) so
+        // we can attach a permissive navigation handler: on desktop the
+        // webview only ever talks to the sidecar it spawned on 127.0.0.1,
+        // and on mobile the user explicitly types in their own PC's LAN
+        // address on the connect screen — that's a deliberate cross-origin
+        // jump, not something to allowlist by fixed IP (which varies per
+        // user), so navigation is allowed unconditionally.
+        #[cfg(desktop)]
+        let url = WebviewUrl::External(format!("http://{}", desktop::SERVER_ADDR).parse().unwrap());
+        #[cfg(not(desktop))]
+        let url = WebviewUrl::App("connect.html".into());
+
+        let mut win_builder = tauri::WebviewWindowBuilder::new(app, "main", url)
+            .title("MusicGrab")
+            .on_navigation(|_url| true);
+
+        #[cfg(desktop)]
+        {
+            win_builder = win_builder
+                .inner_size(1280.0, 800.0)
+                .min_inner_size(860.0, 560.0)
+                .center()
+                .visible(false); // shown by spawn_backend() once the sidecar is ready
+        }
+
+        win_builder.build()?;
+
+        #[cfg(desktop)]
+        desktop::spawn_backend(app);
+
+        Ok(())
+    });
+
+    #[cfg(desktop)]
+    {
+        builder
+            .build(tauri::generate_context!())
+            .expect("error while building tauri application")
+            .run(|app_handle, event| {
+                // Kill the backend process when the app exits, rather than
+                // leaving an orphaned server running on the user's machine.
+                if let tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit = event {
+                    desktop::kill_backend(app_handle);
                 }
             });
+    }
 
-            // Don't show a blank window while the backend is still booting;
-            // poll until it accepts connections, then reveal it.
-            let window = app
-                .get_webview_window("main")
-                .expect("main window must exist");
-            std::thread::spawn(move || {
-                // The webview starts loading SERVER_ADDR immediately on
-                // window creation, racing the sidecar's startup — it can
-                // load a "connection refused" page before the backend is
-                // actually listening. Force a reload once the port is
-                // confirmed open, then reveal the (now-correct) window.
-                wait_for_server();
-                let _ = window.eval("window.location.reload()");
-                std::thread::sleep(Duration::from_millis(150));
-                let _ = window.show();
-                let _ = window.set_focus();
-            });
-
-            Ok(())
-        })
-        .build(tauri::generate_context!())
-        .expect("error while building tauri application")
-        .run(|app_handle, event| {
-            // Kill the backend process when the app exits, rather than
-            // leaving an orphaned server running on the user's machine.
-            if let RunEvent::ExitRequested { .. } | RunEvent::Exit = event {
-                if let Some(handle) = app_handle.try_state::<SidecarHandle>() {
-                    if let Some(child) = handle.0.lock().unwrap().take() {
-                        let _ = child.kill();
-                    }
-                }
-            }
-        });
+    #[cfg(not(desktop))]
+    {
+        builder
+            .run(tauri::generate_context!())
+            .expect("error while running tauri application");
+    }
 }

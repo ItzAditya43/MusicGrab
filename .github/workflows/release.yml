@@ -6,6 +6,9 @@ on:
       - "v*"
   workflow_dispatch: {}
 
+permissions:
+  contents: write
+
 jobs:
   build:
     strategy:
@@ -109,3 +112,74 @@ jobs:
             src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.AppImage
             src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.msi
             src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.exe
+
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK
+        run: sdkmanager --install "ndk;27.0.12077973"
+
+      - name: Set up Rust with Android targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - name: Rust build cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Initialize Android project
+        env:
+          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
+        run: cargo tauri android init --ci
+
+      # MusicGrab's Android build is a thin client: the connect.html page
+      # (musicgrab/web-android/) navigates to the user's own PC over plain
+      # HTTP on their LAN, which Android blocks by default (cleartext
+      # traffic disabled since API 28). Allow it — there's no way to
+      # allowlist a fixed domain since every user's PC has a different LAN
+      # IP, and this is inherently a local-network, user-supplied address.
+      - name: Allow cleartext (HTTP) traffic for LAN connections
+        run: |
+          sed -i 's/<application/<application android:usesCleartextTraffic="true"/' \
+            src-tauri/gen/android/app/src/main/AndroidManifest.xml
+          grep -q 'usesCleartextTraffic' src-tauri/gen/android/app/src/main/AndroidManifest.xml
+
+      - name: Build debug-signed APK
+        env:
+          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
+        run: cargo tauri android build --debug --target aarch64
+
+      - name: Locate APK
+        id: apk
+        run: |
+          apk=$(find src-tauri/gen/android -name "*.apk" | head -1)
+          echo "Found: $apk"
+          cp "$apk" musicgrab-android.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: musicgrab-android-apk
+          path: musicgrab-android.apk
+
+      - name: Attach to GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: musicgrab-android.apk

@@ -7,21 +7,7 @@
     "frontendDist": "../musicgrab/web"
   },
   "app": {
-    "windows": [
-      {
-        "label": "main",
-        "title": "MusicGrab",
-        "url": "http://127.0.0.1:8765",
-        "width": 1280,
-        "height": 800,
-        "minWidth": 860,
-        "minHeight": 560,
-        "resizable": true,
-        "fullscreen": false,
-        "visible": false,
-        "center": true
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": null
     }
