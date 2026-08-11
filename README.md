@@ -1,3 +1,5 @@
+<img src="logo.png" alt="MusicGrab" width="96" />
+
 # MusicGrab
 
 A self-hosted music downloader, library manager, and player for YouTube and Spotify — usable
@@ -106,6 +108,36 @@ Before considering this done, the actual pipeline was exercised, not just read:
 - No auth — this is designed to run locally for a single user, not to be exposed on the open
   internet
 
+### Follow-up pass: real-use testing, retro redesign, lyrics, installability
+
+A second pass installed the app and actually used it end to end rather than just reading the
+code, which surfaced two real backend bugs — both fixed, not worked around:
+
+- `YouTubeSource.download_track()` returned early without setting `track.output_path` /
+  `downloaded` / `file_size` whenever the destination filename already existed on disk (e.g.
+  re-downloading a track). The download itself succeeded, but the resulting library entry had no
+  audio path attached, so the track was silently unplayable. Fixed by populating those fields on
+  every return path, not just the fresh-download one.
+- `LibraryManager.scan()` unconditionally replaced the *entire* library with whatever it found in
+  the directory just scanned — scanning one folder would silently delete knowledge of tracks that
+  live anywhere else. Fixed to merge: only entries whose file lives under the scanned directory
+  are replaced, everything else is left alone. The web app's "Rescan library" button was also
+  pointed at `download_dir` (where downloads actually land) instead of the unrelated default
+  `library_dir`.
+
+On top of that:
+
+- **Visual redesign** to an 80s synthwave look — magenta/cyan neon on near-black, Orbitron display
+  type, VT323 monospace readouts, scanline texture, glow on active/interactive elements.
+- **Synced lyrics** via lrclib.net, verified against a real track with known LRC timestamps —
+  confirmed the correct line highlights as playback progresses and clicking a line seeks to it.
+- **Installable app**: a manifest + minimal service worker so Chrome/Edge can install MusicGrab as
+  a standalone window on both Windows and Linux, rather than it only living as a browser tab.
+
+Verified by: downloading two different real YouTube videos through the running server, confirming
+both ended up correctly playable in the library, driving a headless-Chromium instance over the
+DevTools protocol to click play and open the lyrics panel, and screenshotting the result.
+
 ---
 
 ## Features
@@ -116,7 +148,11 @@ Before considering this done, the actual pipeline was exercised, not just read:
 - **Metadata embedding** — title, artist, album, track/disc number, year, genre
 - **Album artwork** — fetched, embedded, and saved alongside downloads
 - **Local library** — scan, search, stats, and artist/album organization
-- **Web app** — sidebar navigation, live download progress, and a persistent player bar
+- **Web app** — sidebar navigation, live download progress, and a persistent player bar,
+  installable as a standalone desktop app on both Windows and Linux (see below)
+- **Synced lyrics** — fetched on demand from [lrclib.net](https://lrclib.net) (free, no API key),
+  with the current line highlighted as the track plays; falls back to plain lyrics when no synced
+  version exists
 - **CLI** — every capability is also available as `musicgrab <command>`
 - **Multiple formats** — MP3, FLAC, M4A, WAV, OGG
 
@@ -158,6 +194,16 @@ musicgrab-web
 
 Paste a YouTube or Spotify link in the sidebar to download it in the background; finished tracks
 show up in Your Library and play through the built-in player bar.
+
+#### Installing it as a desktop app (Windows & Linux)
+
+MusicGrab ships a PWA manifest and service worker, so Chrome or Edge (the same install flow on
+both Windows and Linux) can install it as a standalone windowed app instead of a browser tab:
+
+1. Start the server (`musicgrab-web`) and open `http://127.0.0.1:8765`
+2. Click the **install icon** in the address bar (or the browser's menu → *Install MusicGrab…*)
+3. It launches from then on as its own window with its own taskbar/dock icon — no address bar,
+   no tabs — while still just talking to the local server on `127.0.0.1`
 
 ### CLI
 

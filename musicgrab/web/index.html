@@ -4,8 +4,15 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>MusicGrab</title>
+  <link rel="icon" type="image/png" href="/logo.png" />
+  <link rel="apple-touch-icon" href="/logo.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@600;700;800;900&family=VT323&display=swap" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#0a0014" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <link rel="stylesheet" href="/app.css" />
 </head>
 <body>
@@ -13,11 +20,7 @@
     <nav class="sidebar">
       <div class="brand">
         <span class="brand-mark">
-          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M9 18V5l12-2v13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-            <circle cx="6" cy="18" r="3" stroke="currentColor" stroke-width="1.8"/>
-            <circle cx="18" cy="16" r="3" stroke="currentColor" stroke-width="1.8"/>
-          </svg>
+          <img src="/logo.png" alt="" />
         </span>
         <span class="brand-name">MusicGrab</span>
       </div>
@@ -82,11 +85,7 @@
       <section class="view" id="view-home">
         <div class="hero">
           <div class="hero-icon">
-            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M9 18V5l12-2v13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
-              <circle cx="6" cy="18" r="3" stroke="currentColor" stroke-width="1.4"/>
-              <circle cx="18" cy="16" r="3" stroke="currentColor" stroke-width="1.4"/>
-            </svg>
+            <img src="/logo.png" alt="" />
           </div>
           <h2>Your music, downloaded and playable.</h2>
           <p>Paste a YouTube or Spotify link on the left to pull down a track, playlist, or album.</p>
@@ -192,6 +191,12 @@
       </div>
 
       <div class="player-volume">
+        <button id="lyrics-btn" class="lyrics-toggle" title="Lyrics">
+          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M5 4h11l3 3v13H5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+            <path d="M8 10h8M8 13h8M8 16h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          </svg>
+        </button>
         <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M4 9v6h4l5 4V5L8 9H4Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
           <path d="M17.5 9a4 4 0 0 1 0 6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
@@ -199,6 +204,20 @@
         <input type="range" id="volume" min="0" max="1" step="0.01" value="1" />
       </div>
     </footer>
+
+    <aside class="lyrics-panel" id="lyrics-panel" hidden>
+      <div class="lyrics-panel-header">
+        <h2>Lyrics</h2>
+        <button id="lyrics-close" class="lyrics-close" title="Close">
+          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="m6 6 12 12M18 6 6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </div>
+      <div class="lyrics-body" id="lyrics-body">
+        <p class="muted">Play a track to see its lyrics.</p>
+      </div>
+    </aside>
   </div>
 
   <audio id="audio"></audio>

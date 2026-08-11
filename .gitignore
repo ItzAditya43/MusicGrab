@@ -21,3 +21,11 @@ env/
 config.json
 library.json
 queue.json
+
+# Tauri / desktop build artifacts (built from source, not committed)
+src-tauri/target/
+build/
+dist/
+*.spec
+src-tauri/binaries/
+src-tauri/gen/

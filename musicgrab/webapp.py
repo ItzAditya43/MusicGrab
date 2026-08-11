@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import mimetypes
+import sys
 import threading
 import time
 import uuid
@@ -268,8 +269,14 @@ def get_library():
 
 @app.post("/api/library/scan")
 def scan_library():
-    tracks = library_manager.scan()
-    return {"tracks": [_track_to_public(t) for t in tracks]}
+    # Downloads land in download_dir; library_dir is where `library organize`
+    # files end up. Scan both so the web app's "Rescan" picks up everything
+    # regardless of which directory a track happens to live in. Safe to run
+    # both — scan() only replaces entries under the directory it scanned.
+    library_manager.scan(config.download_dir)
+    if config.library_dir != config.download_dir:
+        library_manager.scan(config.library_dir)
+    return {"tracks": [_track_to_public(t) for t in library_manager.list_tracks()]}
 
 
 @app.get("/api/library/stats")
@@ -308,6 +315,74 @@ def track_artwork(track_id: str):
         if stem_matches:
             return FileResponse(stem_matches[0])
     raise HTTPException(404, "No artwork found")
+
+
+# ---------------------------------------------------------------------------
+# Lyrics (via lrclib.net — free, keyless, provides synced + plain lyrics)
+# ---------------------------------------------------------------------------
+
+_lyrics_cache: dict[str, dict] = {}
+
+LRCLIB_API = "https://lrclib.net/api/get"
+
+
+def _parse_synced_lyrics(raw: str) -> list[dict]:
+    """Parse LRC-format `[mm:ss.xx] line` text into [{time, text}, ...]."""
+    import re
+
+    lines = []
+    pattern = re.compile(r"\[(\d+):(\d+(?:\.\d+)?)\](.*)")
+    for line in raw.splitlines():
+        match = pattern.match(line.strip())
+        if not match:
+            continue
+        minutes, seconds, text = match.groups()
+        t = int(minutes) * 60 + float(seconds)
+        text = text.strip()
+        if text:
+            lines.append({"time": t, "text": text})
+    return lines
+
+
+@app.get("/api/lyrics/{track_id}")
+def track_lyrics(track_id: str):
+    track = _find_track_by_id(track_id)
+    if not track:
+        raise HTTPException(404, "Track not found")
+
+    cache_key = track_id
+    if cache_key in _lyrics_cache:
+        return _lyrics_cache[cache_key]
+
+    import requests
+
+    params = {"track_name": track.title, "artist_name": track.artist}
+    if track.album:
+        params["album_name"] = track.album
+    if track.duration:
+        params["duration"] = int(track.duration)
+
+    try:
+        resp = requests.get(LRCLIB_API, params=params, timeout=8)
+    except requests.RequestException:
+        result = {"found": False, "plain": None, "synced": None}
+        return result
+
+    if resp.status_code != 200:
+        result = {"found": False, "plain": None, "synced": None}
+        _lyrics_cache[cache_key] = result
+        return result
+
+    data = resp.json()
+    plain = data.get("plainLyrics") or None
+    synced_raw = data.get("syncedLyrics") or None
+    result = {
+        "found": bool(plain or synced_raw),
+        "plain": plain,
+        "synced": _parse_synced_lyrics(synced_raw) if synced_raw else None,
+    }
+    _lyrics_cache[cache_key] = result
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -350,16 +425,26 @@ def update_config(update: ConfigUpdate):
 # Static frontend
 # ---------------------------------------------------------------------------
 
-_WEB_DIR = Path(__file__).parent / "web"
+def _web_dir() -> Path:
+    # When frozen by PyInstaller (for the Tauri desktop build), bundled data
+    # files are extracted under sys._MEIPASS instead of living next to this
+    # source file.
+    frozen_base = getattr(sys, "_MEIPASS", None)
+    if frozen_base:
+        return Path(frozen_base) / "musicgrab" / "web"
+    return Path(__file__).parent / "web"
+
+
+_WEB_DIR = _web_dir()
 if _WEB_DIR.exists():
     app.mount("/", StaticFiles(directory=str(_WEB_DIR), html=True), name="frontend")
 
 
 def run() -> None:
-    """Entry point for `musicgrab-web`."""
+    """Entry point for `musicgrab-web` (also used as the Tauri sidecar entry point)."""
     import uvicorn
 
-    uvicorn.run("musicgrab.webapp:app", host="127.0.0.1", port=8765, reload=False)
+    uvicorn.run(app, host="127.0.0.1", port=8765, reload=False)
 
 
 if __name__ == "__main__":

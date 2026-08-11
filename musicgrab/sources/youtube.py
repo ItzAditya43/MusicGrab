@@ -224,6 +224,9 @@ class YouTubeSource:
             if desired_file != expected_file:
                 if desired_file.exists() and not self.config.overwrite:
                     print_warning(f"File already exists: {desired_file.name}")
+                    track.output_path = desired_file
+                    track.downloaded = True
+                    track.file_size = desired_file.stat().st_size
                     return desired_file
                 expected_file.rename(desired_file)
             track.output_path = desired_file
@@ -239,6 +242,9 @@ class YouTubeSource:
                 desired_file = output_dir / f"{desired_name}{f.suffix}"
                 if desired_file != f:
                     if desired_file.exists() and not self.config.overwrite:
+                        track.output_path = desired_file
+                        track.downloaded = True
+                        track.file_size = desired_file.stat().st_size
                         return desired_file
                     f.rename(desired_file)
                 track.output_path = desired_file

@@ -25,6 +25,15 @@ from musicgrab.utils import (
 )
 
 
+def _is_under(path_str: str, dir_str: str) -> bool:
+    """Whether the resolved path lies inside the resolved directory."""
+    try:
+        Path(path_str).resolve().relative_to(dir_str)
+        return True
+    except ValueError:
+        return False
+
+
 class LibraryManager:
     """Manages the local music library."""
 
@@ -79,8 +88,16 @@ class LibraryManager:
                     if track:
                         tracks.append(track)
 
-        # Update library data
-        self._library_data["tracks"] = [t.to_dict() for t in tracks]
+        # Merge into library data: replace entries for files under scan_dir,
+        # but leave tracks located elsewhere untouched (a scan of one
+        # directory must never delete knowledge of tracks in another).
+        scan_dir_resolved = str(scan_dir.resolve())
+        existing = self._library_data.get("tracks", [])
+        kept = [
+            t for t in existing
+            if not (t.get("output_path") and _is_under(t["output_path"], scan_dir_resolved))
+        ]
+        self._library_data["tracks"] = kept + [t.to_dict() for t in tracks]
         self._library_data["last_scan"] = datetime.now().isoformat()
         self._save()
 

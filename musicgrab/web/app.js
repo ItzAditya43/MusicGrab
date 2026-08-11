@@ -9,6 +9,9 @@
     queue: [],      // active playback queue (array of tracks)
     queueIndex: -1,
     jobPollTimer: null,
+    lyrics: null,       // { found, plain, synced } for the current track
+    lyricsTrackId: null,
+    lyricsOpen: false,
   };
 
   const el = (id) => document.getElementById(id);
@@ -313,7 +316,95 @@
     el("player-art").src = `/api/artwork/${track.id}`;
     el("player-art").onerror = () => (el("player-art").src = "");
     refreshPlayingHighlight();
+    loadLyrics(track);
   }
+
+  // ---------------- Lyrics ----------------
+
+  async function loadLyrics(track) {
+    state.lyrics = null;
+    state.lyricsTrackId = track.id;
+    if (state.lyricsOpen) renderLyrics();
+
+    try {
+      const data = await api(`/api/lyrics/${track.id}`);
+      if (state.lyricsTrackId !== track.id) return; // track changed while fetching
+      state.lyrics = data;
+    } catch {
+      if (state.lyricsTrackId !== track.id) return;
+      state.lyrics = { found: false, plain: null, synced: null };
+    }
+    if (state.lyricsOpen) renderLyrics();
+  }
+
+  function renderLyrics() {
+    const body = el("lyrics-body");
+    body.innerHTML = "";
+
+    if (!state.queue[state.queueIndex]) {
+      body.innerHTML = '<p class="muted">Play a track to see its lyrics.</p>';
+      return;
+    }
+    if (state.lyrics === null) {
+      body.innerHTML = '<p class="muted">Loading lyrics…</p>';
+      return;
+    }
+    if (!state.lyrics.found) {
+      body.innerHTML = '<p class="muted">No lyrics found for this track.</p>';
+      return;
+    }
+    if (state.lyrics.synced) {
+      const list = document.createElement("div");
+      list.className = "lyrics-synced";
+      state.lyrics.synced.forEach((line, i) => {
+        const p = document.createElement("p");
+        p.className = "lyrics-line";
+        p.dataset.time = line.time;
+        p.dataset.index = i;
+        p.textContent = line.text;
+        list.appendChild(p);
+      });
+      body.appendChild(list);
+    } else {
+      const pre = document.createElement("pre");
+      pre.className = "lyrics-plain";
+      pre.textContent = state.lyrics.plain;
+      body.appendChild(pre);
+    }
+  }
+
+  function updateLyricsHighlight() {
+    if (!state.lyricsOpen || !state.lyrics || !state.lyrics.synced) return;
+    const lines = el("lyrics-body").querySelectorAll(".lyrics-line");
+    if (!lines.length) return;
+    let activeIndex = -1;
+    lines.forEach((line, i) => {
+      if (parseFloat(line.dataset.time) <= audio.currentTime) activeIndex = i;
+    });
+    lines.forEach((line, i) => line.classList.toggle("active", i === activeIndex));
+    if (activeIndex >= 0) {
+      lines[activeIndex].scrollIntoView({ block: "center", behavior: "smooth" });
+    }
+  }
+
+  el("lyrics-btn").addEventListener("click", () => {
+    state.lyricsOpen = !state.lyricsOpen;
+    el("lyrics-panel").hidden = !state.lyricsOpen;
+    el("lyrics-btn").classList.toggle("active", state.lyricsOpen);
+    if (state.lyricsOpen) renderLyrics();
+  });
+
+  el("lyrics-close").addEventListener("click", () => {
+    state.lyricsOpen = false;
+    el("lyrics-panel").hidden = true;
+    el("lyrics-btn").classList.remove("active");
+  });
+
+  el("lyrics-body").addEventListener("click", (e) => {
+    const line = e.target.closest(".lyrics-line");
+    if (!line || !audio.duration) return;
+    audio.currentTime = parseFloat(line.dataset.time);
+  });
 
   function refreshPlayingHighlight() {
     [el("library-list"), el("search-results")].forEach((container) => {
@@ -354,6 +445,7 @@
     el("seek").value = (audio.currentTime / audio.duration) * 100;
     el("time-current").textContent = formatDuration(audio.currentTime);
     el("time-total").textContent = formatDuration(audio.duration);
+    updateLyricsHighlight();
   });
 
   el("seek").addEventListener("input", () => {
@@ -371,4 +463,8 @@
   showView(VIEW_TITLES[initialView] ? initialView : "home");
   loadLibStats();
   pollJobs();
+
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  }
 })();
