@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  youtubedl-android requires the host app to set
+  android:extractNativeLibs="true" (its bundled Python/ffmpeg/yt-dlp are
+  shipped as native .so files that must be extracted to disk to run, not
+  mapped directly from the APK). Declaring it here lets Android's manifest
+  merger pull it into the generated app manifest automatically, instead of
+  needing a separate CI-side patch step.
+  https://github.com/yausername/youtubedl-android#installation
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:extractNativeLibs="true" />
+</manifest>

@@ -13,7 +13,7 @@ export const THEMES = [
   { id: "crimson-ember",     name: "Crimson Ember",     dark: true,  bg: "#0A0505", surface: "#150A0A", surface2: "#1F0F0F", text: "#FBEAEA", textMuted: "#CB9999", accent: "#E5344B", accent2: "#FF6478", border: "#351515", onAccent: "#FFFFFF" },
   { id: "ocean-abyss",       name: "Ocean Abyss",       dark: true,  bg: "#060E1A", surface: "#0B1626", surface2: "#102033", text: "#E6F2FB", textMuted: "#8BAAC5", accent: "#17A8C4", accent2: "#4FD6E8", border: "#16283D", onAccent: "#04121E" },
   { id: "sandstone-dawn",    name: "Sandstone Dawn",    dark: false, bg: "#FAF4EC", surface: "#FFFFFF", surface2: "#F0E4D2", text: "#3B2A1D", textMuted: "#83694F", accent: "#B85A33", accent2: "#E28A5F", border: "#E7D6BE", onAccent: "#FFFFFF" },
-  { id: "cyber-neon",        name: "Cyber Neon",        dark: true,  bg: "#0A0014", surface: "#150A24", surface2: "#1C0F30", text: "#F3E9FF", textMuted: "#B3A0CC", accent: "#FF2E9A", accent2: "#00E5FF", border: "#3A1C5C", onAccent: "#0A0014", displayFont: "'Orbitron', 'Inter', sans-serif", monoFont: "'VT323', monospace", uppercase: true },
+  { id: "cyber-neon",        name: "Cyber Neon",        dark: true,  bg: "#0A0014", surface: "#150A24", surface2: "#1C0F30", text: "#F3E9FF", textMuted: "#B3A0CC", accent: "#FF2E9A", accent2: "#00E5FF", border: "#3A1C5C", onAccent: "#0A0014", displayFont: "'Orbitron', 'Inter', sans-serif", monoFont: "'VT323', monospace", uppercase: true, retroEffects: true },
   { id: "slate-minimal",     name: "Slate Minimal",     dark: true,  bg: "#17181A", surface: "#1F2023", surface2: "#292A2E", text: "#E9EAEC", textMuted: "#9EA3AA", accent: "#8891A0", accent2: "#ADB4C0", border: "#303237", onAccent: "#101113" },
   { id: "royal-indigo",      name: "Royal Indigo",      dark: true,  bg: "#0B0A1F", surface: "#14122E", surface2: "#1D1A3F", text: "#ECEAFF", textMuted: "#A9A3D6", accent: "#7C5CFF", accent2: "#FFD166", border: "#292656", onAccent: "#FFFFFF" },
   { id: "copper-rust",       name: "Copper Rust",       dark: true,  bg: "#170D08", surface: "#221309", surface2: "#2E1B0E", text: "#F7E6D8", textMuted: "#CCA98A", accent: "#C9773B", accent2: "#E39A5E", border: "#3A2312", onAccent: "#FFFFFF" },
@@ -74,7 +74,7 @@ function tokenVars(theme) {
     "--font-display": theme.displayFont || "'Inter', sans-serif",
     "--font-mono": theme.monoFont || "ui-monospace, 'SF Mono', Consolas, monospace",
     "--heading-transform": theme.uppercase ? "uppercase" : "none",
-    "--scanline-opacity": theme.dark ? "1" : "0.3",
+    "--scanline-opacity": theme.retroEffects ? "1" : "0",
   };
 }
 

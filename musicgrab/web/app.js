@@ -20,6 +20,17 @@ import { ANIMATIONS, animationManager } from "./bg-animations.js";
   const el = (id) => document.getElementById(id);
   const audio = el("audio");
 
+  // The Android build has no local HTTP backend at all — it downloads
+  // on-device via a Tauri plugin (musicgrab-ytdl, backed by
+  // youtubedl-android) instead of the FastAPI server the desktop app
+  // spawns as a sidecar. window.__TAURI__ is only injected on that build
+  // (withGlobalTauri is enabled solely in tauri.android.conf.json), so its
+  // presence reliably distinguishes "running as the Android app" from
+  // "running in a normal browser or the desktop app's window".
+  const IS_ANDROID_APP = typeof window !== "undefined" && !!window.__TAURI__;
+  const invoke = (cmd, payload) =>
+    IS_ANDROID_APP ? window.__TAURI__.core.invoke(cmd, { payload }) : Promise.reject(new Error("not running as the Android app"));
+
   const ICONS = {
     play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',
     pause: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>',
@@ -89,7 +100,7 @@ import { ANIMATIONS, animationManager } from "./bg-animations.js";
     const playBtn = document.createElement("button");
     playBtn.className = "track-play";
     playBtn.innerHTML = ICONS.play;
-    if (track.has_audio && track.id) {
+    if (track.has_audio && track.id && !IS_ANDROID_APP) {
       playBtn.style.backgroundImage = `url(/api/artwork/${track.id})`;
     }
     playBtn.addEventListener("click", () => {
@@ -147,13 +158,29 @@ import { ANIMATIONS, animationManager } from "./bg-animations.js";
   // ---------------- Library ----------------
 
   async function loadLibrary() {
-    const data = await api("/api/library");
-    state.library = data.tracks;
+    if (IS_ANDROID_APP) {
+      const res = await invoke("plugin:musicgrab-ytdl|list_downloads");
+      state.library = res.files.map((f) => ({
+        id: f.path,
+        title: f.name,
+        artist: "",
+        duration: 0,
+        has_audio: true,
+        source_url: f.path,
+      }));
+    } else {
+      const data = await api("/api/library");
+      state.library = data.tracks;
+    }
     renderTrackList(el("library-list"), state.library, { emptyText: "No downloaded tracks yet." });
     loadLibStats();
   }
 
   async function loadLibStats() {
+    if (IS_ANDROID_APP) {
+      el("lib-stats").textContent = `Library: ${state.library.length} tracks`;
+      return;
+    }
     const stats = await api("/api/library/stats");
     el("lib-stats").textContent = `Library: ${stats.total_tracks} tracks`;
   }
@@ -162,7 +189,7 @@ import { ANIMATIONS, animationManager } from "./bg-animations.js";
     el("scan-btn").disabled = true;
     el("scan-btn").textContent = "Scanning…";
     try {
-      await api("/api/library/scan", { method: "POST" });
+      if (!IS_ANDROID_APP) await api("/api/library/scan", { method: "POST" });
       await loadLibrary();
     } finally {
       el("scan-btn").disabled = false;
@@ -178,14 +205,26 @@ import { ANIMATIONS, animationManager } from "./bg-animations.js";
     if (!q) return;
     el("search-results").innerHTML = "<p class=\"muted\">Searching…</p>";
     try {
-      const data = await api(`/api/search?q=${encodeURIComponent(q)}`);
-      state.searchResults = data.results;
+      if (IS_ANDROID_APP) {
+        const res = await invoke("plugin:musicgrab-ytdl|search", { query: q, limit: 15 });
+        state.searchResults = res.results.map((r) => ({
+          id: r.webpageUrl,
+          title: r.title,
+          artist: r.uploader || "YouTube",
+          duration: r.duration || 0,
+          source_url: r.webpageUrl,
+          has_audio: false,
+        }));
+      } else {
+        const data = await api(`/api/search?q=${encodeURIComponent(q)}`);
+        state.searchResults = data.results;
+      }
       renderTrackList(el("search-results"), state.searchResults, {
         emptyText: "No results.",
         showDownload: true,
       });
     } catch (err) {
-      el("search-results").innerHTML = `<p class="muted">${err.message}</p>`;
+      el("search-results").innerHTML = `<p class="muted">${err.message || err}</p>`;
     }
   });
 
@@ -201,6 +240,24 @@ import { ANIMATIONS, animationManager } from "./bg-animations.js";
   });
 
   async function startDownload(url) {
+    if (IS_ANDROID_APP) {
+      // No job queue on Android — download() blocks until yt-dlp finishes
+      // (it runs on a background thread on the Kotlin side, so this await
+      // doesn't block the UI thread there, just this JS call).
+      showView("library");
+      const prevText = el("view-title").textContent;
+      el("view-title").textContent = "Downloading…";
+      try {
+        await invoke("plugin:musicgrab-ytdl|download", { url });
+        await loadLibrary();
+      } catch (err) {
+        alert(err.message || String(err));
+      } finally {
+        el("view-title").textContent = prevText;
+      }
+      return;
+    }
+
     showView("downloads");
     try {
       await api("/api/downloads", {
@@ -278,6 +335,10 @@ import { ANIMATIONS, animationManager } from "./bg-animations.js";
   // ---------------- Settings ----------------
 
   async function loadSettings() {
+    // No config server on Android — audio format is fixed (mp3) in the
+    // Kotlin plugin for now; General settings are a desktop/web-app-only
+    // panel until that's wired up too.
+    if (IS_ANDROID_APP) return;
     const cfg = await api("/api/config");
     el("s-format").value = cfg.audio_format;
     el("s-quality").value = cfg.audio_quality;
@@ -287,6 +348,7 @@ import { ANIMATIONS, animationManager } from "./bg-animations.js";
 
   el("settings-form").addEventListener("submit", async (e) => {
     e.preventDefault();
+    if (IS_ANDROID_APP) return;
     await api("/api/config", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -386,8 +448,14 @@ import { ANIMATIONS, animationManager } from "./bg-animations.js";
     });
   }
 
-  el("animations-enabled").addEventListener("change", (e) => {
+  el("animations-enabled").addEventListener("change", async (e) => {
     animationManager.setEnabled(e.target.checked);
+    // Flipping this on with no animation ever picked would otherwise do
+    // nothing visible — default to the first real option so "enable"
+    // actually shows something instead of silently staying on "none".
+    if (e.target.checked && animationManager.getSavedId() === "none") {
+      await animationManager.setAnimation(ANIMATIONS[1].id);
+    }
     renderAnimationGrid();
   });
 
@@ -419,12 +487,20 @@ import { ANIMATIONS, animationManager } from "./bg-animations.js";
   function playCurrent() {
     const track = state.queue[state.queueIndex];
     if (!track) return;
-    audio.src = `/api/stream/${track.id}`;
+    if (IS_ANDROID_APP) {
+      // track.id is a real on-device file path (see loadLibrary); Tauri's
+      // asset protocol is what's allowed to serve arbitrary local files
+      // into the webview, not a plain file:// URL.
+      audio.src = window.__TAURI__.core.convertFileSrc(track.id);
+      el("player-art").src = "";
+    } else {
+      audio.src = `/api/stream/${track.id}`;
+      el("player-art").src = `/api/artwork/${track.id}`;
+      el("player-art").onerror = () => (el("player-art").src = "");
+    }
     audio.play().catch(() => {});
     el("player-title").textContent = track.title || "Unknown";
     el("player-artist").textContent = track.artist || "Unknown artist";
-    el("player-art").src = `/api/artwork/${track.id}`;
-    el("player-art").onerror = () => (el("player-art").src = "");
     refreshPlayingHighlight();
     loadLyrics(track);
   }
@@ -435,6 +511,14 @@ import { ANIMATIONS, animationManager } from "./bg-animations.js";
     state.lyrics = null;
     state.lyricsTrackId = track.id;
     if (state.lyricsOpen) renderLyrics();
+
+    // No backend to ask on Android — lyrics aren't available in the
+    // standalone build yet.
+    if (IS_ANDROID_APP) {
+      state.lyrics = { found: false, plain: null, synced: null };
+      if (state.lyricsOpen) renderLyrics();
+      return;
+    }
 
     try {
       const data = await api(`/api/lyrics/${track.id}`);
@@ -574,10 +658,17 @@ import { ANIMATIONS, animationManager } from "./bg-animations.js";
 
   const initialView = (location.hash || "").replace("#", "");
   showView(VIEW_TITLES[initialView] ? initialView : "home");
-  loadLibStats();
-  pollJobs();
 
-  if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  if (IS_ANDROID_APP) {
+    // No job queue / no service worker registration path on Android —
+    // pollJobs() and sw.js registration are web-app/desktop concerns.
+    loadLibrary();
+    document.querySelector('.nav-link[data-view="downloads"]')?.remove();
+  } else {
+    loadLibStats();
+    pollJobs();
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").catch(() => {});
+    }
   }
 })();

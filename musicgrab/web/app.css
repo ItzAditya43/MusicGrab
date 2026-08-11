@@ -39,11 +39,12 @@
   --font-display: "Orbitron", "Inter", sans-serif;
   --font-mono: "VT323", monospace;
   --heading-transform: uppercase;
+  /* Retro CRT scanline texture — a deliberate Cyber Neon touch, not a
+     general-purpose effect, so every other theme sets this to 0. */
   --scanline-opacity: 1;
 
   --bg-soft:
     linear-gradient(180deg, transparent 0%, color-mix(in srgb, var(--bg) 90%, transparent) 70%, var(--bg) 100%),
-    repeating-linear-gradient(0deg, rgba(255,255,255,0.025) 0px, rgba(255,255,255,0.025) 1px, transparent 1px, transparent 3px),
     linear-gradient(180deg, var(--surface) 0%, var(--bg) 45%),
     radial-gradient(120% 90% at 50% 0%, var(--surface-2) 0%, var(--bg) 60%);
 }
@@ -59,6 +60,14 @@ html, body {
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* An animated background canvas sits at z-index -1, but that's still
+   behind html/body's own opaque paint unless they're made transparent
+   too — otherwise the animation runs invisibly. */
+html.has-bg-animation,
+html.has-bg-animation body {
+  background: transparent;
 }
 
 h1, h2, h3, .brand-name, .player-title, .hero h2 {

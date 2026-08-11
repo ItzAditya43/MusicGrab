@@ -29,3 +29,4 @@ dist/
 *.spec
 src-tauri/binaries/
 src-tauri/gen/
+plugins/*/target/

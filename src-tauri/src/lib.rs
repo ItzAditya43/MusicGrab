@@ -99,6 +99,11 @@ pub fn run() {
         builder = builder.plugin(tauri_plugin_shell::init());
     }
 
+    #[cfg(target_os = "android")]
+    {
+        builder = builder.plugin(tauri_plugin_musicgrab_ytdl::init());
+    }
+
     builder = builder.setup(|app| {
         if cfg!(debug_assertions) {
             app.handle().plugin(
@@ -109,16 +114,17 @@ pub fn run() {
         }
 
         // The window is built in code (not declared in tauri.conf.json) so
-        // we can attach a permissive navigation handler: on desktop the
-        // webview only ever talks to the sidecar it spawned on 127.0.0.1,
-        // and on mobile the user explicitly types in their own PC's LAN
-        // address on the connect screen — that's a deliberate cross-origin
-        // jump, not something to allowlist by fixed IP (which varies per
-        // user), so navigation is allowed unconditionally.
+        // we can attach a permissive navigation handler — desktop only
+        // ever talks to the sidecar it spawned on 127.0.0.1, so this is
+        // not opening up anything that wasn't already local-only.
         #[cfg(desktop)]
         let url = WebviewUrl::External(format!("http://{}", desktop::SERVER_ADDR).parse().unwrap());
-        #[cfg(not(desktop))]
-        let url = WebviewUrl::App("connect.html".into());
+        // Android is a standalone app: it loads the real bundled frontend
+        // (musicgrab/web, via tauri.android.conf.json's frontendDist) and
+        // downloads on-device through the musicgrab-ytdl plugin instead of
+        // talking to a spawned backend — see plugins/tauri-plugin-musicgrab-ytdl.
+        #[cfg(target_os = "android")]
+        let url = WebviewUrl::App("index.html".into());
 
         let mut win_builder = tauri::WebviewWindowBuilder::new(app, "main", url)
             .title("MusicGrab")
