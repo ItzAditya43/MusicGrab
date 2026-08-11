@@ -1,0 +1,111 @@
+name: Release desktop builds
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-latest
+            rust-target: x86_64-unknown-linux-gnu
+            sidecar-suffix: ""
+          - platform: windows-latest
+            rust-target: x86_64-pc-windows-msvc
+            sidecar-suffix: ".exe"
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            librsvg2-dev \
+            patchelf \
+            libayatana-appindicator3-dev \
+            ffmpeg
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-target }}
+
+      - name: Rust build cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install Python project + PyInstaller
+        run: |
+          pip install -e .
+          pip install pyinstaller
+
+      - name: Freeze backend into a standalone sidecar binary
+        run: >
+          pyinstaller
+          --name musicgrab-web
+          --onefile
+          --paths .
+          --add-data "musicgrab/web${{ matrix.platform == 'windows-latest' && ';' || ':' }}musicgrab/web"
+          --collect-all yt_dlp
+          --collect-submodules musicgrab
+          --hidden-import uvicorn.logging
+          --hidden-import uvicorn.loops
+          --hidden-import uvicorn.loops.auto
+          --hidden-import uvicorn.protocols
+          --hidden-import uvicorn.protocols.http
+          --hidden-import uvicorn.protocols.http.auto
+          --hidden-import uvicorn.protocols.websockets
+          --hidden-import uvicorn.protocols.websockets.auto
+          --hidden-import uvicorn.lifespan
+          --hidden-import uvicorn.lifespan.on
+          scripts/run_web.py
+
+      - name: Place sidecar with Tauri's target-triple naming convention
+        shell: bash
+        run: |
+          mkdir -p src-tauri/binaries
+          cp "dist/musicgrab-web${{ matrix.sidecar-suffix }}" \
+             "src-tauri/binaries/musicgrab-web-${{ matrix.rust-target }}${{ matrix.sidecar-suffix }}"
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Build Tauri app (installers)
+        run: cargo tauri build --target ${{ matrix.rust-target }}
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: musicgrab-${{ matrix.rust-target }}
+          path: |
+            src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.deb
+            src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.AppImage
+            src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.msi
+            src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.exe
+
+      - name: Attach to GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.deb
+            src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.AppImage
+            src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.msi
+            src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.exe
