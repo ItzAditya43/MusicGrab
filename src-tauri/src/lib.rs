@@ -71,7 +71,14 @@ pub fn run() {
                 .get_webview_window("main")
                 .expect("main window must exist");
             std::thread::spawn(move || {
+                // The webview starts loading SERVER_ADDR immediately on
+                // window creation, racing the sidecar's startup — it can
+                // load a "connection refused" page before the backend is
+                // actually listening. Force a reload once the port is
+                // confirmed open, then reveal the (now-correct) window.
                 wait_for_server();
+                let _ = window.eval("window.location.reload()");
+                std::thread::sleep(Duration::from_millis(150));
                 let _ = window.show();
                 let _ = window.set_focus();
             });
