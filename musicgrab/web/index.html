@@ -4,6 +4,22 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>MusicGrab</title>
+  <script>
+    // Apply the last-used theme synchronously, before first paint, so
+    // switching themes never causes a flash of the default (Cyber Neon)
+    // theme. The full themes.js module (loaded later, as type=module)
+    // re-applies the same values and additionally sets the dataset/class
+    // used by the settings UI.
+    (function () {
+      try {
+        var cached = localStorage.getItem("musicgrab.themeVars");
+        if (!cached) return;
+        var vars = JSON.parse(cached);
+        var root = document.documentElement.style;
+        for (var key in vars) root.setProperty(key, vars[key]);
+      } catch (e) {}
+    })();
+  </script>
   <link rel="icon" type="image/png" href="/logo.png" />
   <link rel="apple-touch-icon" href="/logo.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -123,6 +139,12 @@
       </section>
 
       <section class="view" id="view-settings" hidden>
+        <div class="settings-tabs">
+          <button class="settings-tab active" data-tab="general">General</button>
+          <button class="settings-tab" data-tab="appearance">Appearance</button>
+        </div>
+
+        <div class="settings-tab-panel" id="settings-panel-general">
         <form class="settings-form" id="settings-form">
           <label>Audio format
             <select id="s-format">
@@ -157,6 +179,45 @@
           <button type="submit">Save settings</button>
           <span class="save-note" id="settings-saved" hidden>Saved</span>
         </form>
+        </div>
+
+        <div class="settings-tab-panel" id="settings-panel-appearance" hidden>
+          <div class="appearance-section">
+            <div class="appearance-section-header">
+              <h3>Color Theme</h3>
+              <button class="btn-secondary" id="reset-appearance">Reset to default</button>
+            </div>
+            <div class="preview-card" id="appearance-preview">
+              <div class="preview-track-row">
+                <div class="preview-play-btn">
+                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                </div>
+                <div>
+                  <div class="preview-title">Sample Track</div>
+                  <div class="preview-artist">Preview Artist</div>
+                </div>
+              </div>
+              <button class="preview-btn">Primary action</button>
+            </div>
+            <div class="theme-grid" id="theme-grid"></div>
+          </div>
+
+          <div class="appearance-section">
+            <h3>Background Animation</h3>
+            <label class="checkbox">
+              <input type="checkbox" id="animations-enabled" /> Enable animated background
+            </label>
+            <div class="intensity-row">
+              <span class="muted">Intensity</span>
+              <div class="intensity-buttons" id="intensity-buttons">
+                <button data-level="low">Low</button>
+                <button data-level="medium">Medium</button>
+                <button data-level="high">High</button>
+              </div>
+            </div>
+            <div class="animation-grid" id="animation-grid"></div>
+          </div>
+        </div>
       </section>
     </main>
 
@@ -221,6 +282,6 @@
   </div>
 
   <audio id="audio"></audio>
-  <script src="/app.js"></script>
+  <script type="module" src="/app.js"></script>
 </body>
 </html>

@@ -1,3 +1,6 @@
+import { THEMES, getTheme, getSavedThemeId, setActiveTheme, applyTheme, initTheme } from "./themes.js";
+import { ANIMATIONS, animationManager } from "./bg-animations.js";
+
 (() => {
   "use strict";
 
@@ -54,7 +57,10 @@
     });
     if (view === "library") loadLibrary();
     if (view === "downloads") renderJobs();
-    if (view === "settings") loadSettings();
+    if (view === "settings") {
+      loadSettings();
+      initAppearanceSettings();
+    }
   }
 
   document.querySelectorAll(".nav-link").forEach((btn) => {
@@ -298,6 +304,110 @@
     setTimeout(() => (note.hidden = true), 2000);
   });
 
+  // ---------------- Settings tabs ----------------
+
+  document.querySelectorAll(".settings-tab").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      document.querySelectorAll(".settings-tab").forEach((t) => t.classList.remove("active"));
+      tab.classList.add("active");
+      el("settings-panel-general").hidden = tab.dataset.tab !== "general";
+      el("settings-panel-appearance").hidden = tab.dataset.tab !== "appearance";
+    });
+  });
+
+  // ---------------- Appearance: color themes ----------------
+
+  function renderThemeGrid() {
+    const grid = el("theme-grid");
+    grid.innerHTML = "";
+    const activeId = getSavedThemeId();
+    THEMES.forEach((theme) => {
+      const btn = document.createElement("button");
+      btn.className = "theme-swatch" + (theme.id === activeId ? " active" : "");
+      btn.dataset.themeId = theme.id;
+
+      const colors = document.createElement("div");
+      colors.className = "theme-swatch-colors";
+      [theme.bg, theme.surface2, theme.accent, theme.accent2].forEach((c) => {
+        const sw = document.createElement("span");
+        sw.style.background = c;
+        colors.appendChild(sw);
+      });
+
+      const name = document.createElement("div");
+      name.className = "theme-swatch-name";
+      name.textContent = theme.name;
+
+      btn.append(colors, name);
+      btn.addEventListener("mouseenter", () => previewTheme(theme));
+      btn.addEventListener("mouseleave", () => previewTheme(getTheme(getSavedThemeId())));
+      btn.addEventListener("click", () => {
+        setActiveTheme(theme.id);
+        animationManager.refreshForThemeChange();
+        renderThemeGrid();
+      });
+      grid.appendChild(btn);
+    });
+  }
+
+  function previewTheme(theme) {
+    // Live-preview on hover without persisting; setActiveTheme() (on
+    // click) is what actually saves the choice.
+    applyTheme(theme);
+  }
+
+  // ---------------- Appearance: background animations ----------------
+
+  function renderAnimationGrid() {
+    const grid = el("animation-grid");
+    grid.innerHTML = "";
+    const activeId = animationManager.getSavedId();
+    ANIMATIONS.forEach((anim) => {
+      const btn = document.createElement("button");
+      btn.className = "animation-swatch" + (anim.id === activeId ? " active" : "");
+      btn.textContent = anim.name;
+      btn.addEventListener("click", async () => {
+        el("animations-enabled").checked = anim.id !== "none";
+        animationManager.setEnabled(anim.id !== "none");
+        await animationManager.setAnimation(anim.id);
+        renderAnimationGrid();
+      });
+      grid.appendChild(btn);
+    });
+  }
+
+  function renderIntensityButtons() {
+    document.querySelectorAll("#intensity-buttons button").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.level === animationManager.intensity);
+      btn.addEventListener("click", () => {
+        animationManager.setIntensity(btn.dataset.level);
+        renderIntensityButtons();
+      });
+    });
+  }
+
+  el("animations-enabled").addEventListener("change", (e) => {
+    animationManager.setEnabled(e.target.checked);
+    renderAnimationGrid();
+  });
+
+  el("reset-appearance").addEventListener("click", () => {
+    setActiveTheme("cyber-neon");
+    animationManager.setEnabled(false);
+    animationManager.setAnimation("none");
+    el("animations-enabled").checked = false;
+    renderThemeGrid();
+    renderAnimationGrid();
+    renderIntensityButtons();
+  });
+
+  function initAppearanceSettings() {
+    el("animations-enabled").checked = animationManager.enabled && animationManager.getSavedId() !== "none";
+    renderThemeGrid();
+    renderAnimationGrid();
+    renderIntensityButtons();
+  }
+
   // ---------------- Player ----------------
 
   function playQueue(queue, index) {
@@ -458,6 +568,9 @@
   });
 
   // ---------------- Init ----------------
+
+  initTheme();
+  animationManager.init();
 
   const initialView = (location.hash || "").replace("#", "");
   showView(VIEW_TITLES[initialView] ? initialView : "home");
