@@ -238,7 +238,7 @@ jobs:
 
       - name: Locate emulator-target APK
         run: |
-          apk=$(find src-tauri/gen/android -path "*x86_64*.apk" | head -1)
+          apk=$(find src-tauri/gen/android -name "*.apk" | head -1)
           echo "Found: $apk"
           cp "$apk" musicgrab-android-x86_64-debug.apk
 
