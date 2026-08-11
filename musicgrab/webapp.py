@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import mimetypes
+import re
 import sys
 import threading
 import time
@@ -323,7 +324,37 @@ def track_artwork(track_id: str):
 
 _lyrics_cache: dict[str, dict] = {}
 
-LRCLIB_API = "https://lrclib.net/api/get"
+LRCLIB_GET_API = "https://lrclib.net/api/get"
+LRCLIB_SEARCH_API = "https://lrclib.net/api/search"
+
+_JUNK_PATTERN = re.compile(
+    r"""\(?\[?\s*(official\s*(music\s*)?video|official\s*audio|official\s*lyric\s*video|
+    lyric\s*video|lyrics|remastered(\s*\d{4})?|hd|hq|4k|visualizer|audio\s*only|
+    full\s*song|explicit)\s*\)?\]?""",
+    re.IGNORECASE | re.VERBOSE,
+)
+_ARTIST_JUNK_SUFFIXES = (" - topic", " official", " vevo")
+
+
+def _clean_lyrics_query(title: str, artist: str) -> tuple[str, str]:
+    """Strip YouTube-metadata junk so lrclib's search can actually match.
+
+    YouTube titles/uploaders are messy ("Queen Official" / "Song (Official
+    Video Remastered)") and lrclib's exact-match /get endpoint needs clean
+    track/artist names, so leaving this junk in silently returns no lyrics
+    for almost every YouTube-sourced track.
+    """
+    clean_title = _JUNK_PATTERN.sub("", title)
+    clean_title = re.sub(r"[\(\[]\s*[\)\]]", "", clean_title)
+    clean_title = re.sub(r"\s+", " ", clean_title).strip(" -")
+
+    clean_artist = artist
+    for suffix in _ARTIST_JUNK_SUFFIXES:
+        if clean_artist.lower().endswith(suffix):
+            clean_artist = clean_artist[: -len(suffix)]
+    clean_artist = clean_artist.strip()
+
+    return clean_title or title, clean_artist or artist
 
 
 def _parse_synced_lyrics(raw: str) -> list[dict]:
@@ -356,24 +387,43 @@ def track_lyrics(track_id: str):
 
     import requests
 
-    params = {"track_name": track.title, "artist_name": track.artist}
+    clean_title, clean_artist = _clean_lyrics_query(track.title, track.artist)
+
+    params = {"track_name": clean_title, "artist_name": clean_artist}
     if track.album:
         params["album_name"] = track.album
     if track.duration:
         params["duration"] = int(track.duration)
 
+    data = None
     try:
-        resp = requests.get(LRCLIB_API, params=params, timeout=8)
+        resp = requests.get(LRCLIB_GET_API, params=params, timeout=8)
+        if resp.status_code == 200:
+            data = resp.json()
     except requests.RequestException:
-        result = {"found": False, "plain": None, "synced": None}
-        return result
+        pass
 
-    if resp.status_code != 200:
+    # The exact-match /get endpoint needs a precise duration/title match,
+    # which YouTube-sourced tracks rarely have (intro/outro padding, junky
+    # titles). Fall back to fuzzy /search and take the closest hit.
+    if not data or not (data.get("plainLyrics") or data.get("syncedLyrics")):
+        try:
+            resp = requests.get(
+                LRCLIB_SEARCH_API,
+                params={"track_name": clean_title, "artist_name": clean_artist},
+                timeout=8,
+            )
+            if resp.status_code == 200:
+                results = resp.json()
+                data = results[0] if results else None
+        except requests.RequestException:
+            data = None
+
+    if not data:
         result = {"found": False, "plain": None, "synced": None}
         _lyrics_cache[cache_key] = result
         return result
 
-    data = resp.json()
     plain = data.get("plainLyrics") or None
     synced_raw = data.get("syncedLyrics") or None
     result = {

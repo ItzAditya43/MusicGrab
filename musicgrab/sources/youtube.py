@@ -4,6 +4,7 @@ Handles downloading audio from YouTube videos and playlists using yt-dlp.
 """
 
 import json
+import os
 import subprocess
 from pathlib import Path
 from typing import List, Optional
@@ -20,6 +21,25 @@ from musicgrab.utils import (
     print_warning,
     sanitize_path_component,
 )
+
+
+def _subprocess_env() -> dict:
+    """Environment for spawning external tools like yt-dlp.
+
+    PyInstaller points LD_LIBRARY_PATH at its own bundled libs (and stashes
+    the real value in LD_LIBRARY_PATH_ORIG) so the frozen app's own Python
+    can find them. That override leaks into any child process we spawn, so
+    a system-installed yt-dlp/ffmpeg ends up loading PyInstaller's bundled
+    libcrypto/libssl instead of the system ones and crashes with something
+    like "OPENSSL_3.3.0 not found". Restore the original value for children.
+    """
+    env = os.environ.copy()
+    orig = env.pop("LD_LIBRARY_PATH_ORIG", None)
+    if orig is not None:
+        env["LD_LIBRARY_PATH"] = orig
+    else:
+        env.pop("LD_LIBRARY_PATH", None)
+    return env
 
 
 class YouTubeSource:
@@ -40,7 +60,7 @@ class YouTubeSource:
             "--no-warnings",
             url,
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, env=_subprocess_env())
         if result.returncode != 0:
             print_error(f"Failed to fetch info: {result.stderr.strip()}")
             return {}
@@ -186,6 +206,7 @@ class YouTubeSource:
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            env=_subprocess_env(),
         )
 
         for line in process.stdout:
@@ -291,7 +312,7 @@ class YouTubeSource:
             "--playlist-items", f"1:{max_results}",
             f"ytsearch{query}",
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, env=_subprocess_env())
         if result.returncode != 0:
             return []
 
