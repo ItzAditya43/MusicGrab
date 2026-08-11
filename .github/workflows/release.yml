@@ -155,9 +155,29 @@ jobs:
       # allowlist a fixed domain since every user's PC has a different LAN
       # IP, and this is inherently a local-network, user-supplied address.
       - name: Allow cleartext (HTTP) traffic for LAN connections
+        # An XML-aware edit, not sed: a blind text substitution on
+        # "<application" risks corrupting the file if that substring shows
+        # up anywhere else (a comment, a differently-named tag) — exactly
+        # what broke the first attempt at this (manifest merger failed to
+        # parse the file afterward).
         run: |
-          sed -i 's/<application/<application android:usesCleartextTraffic="true"/' \
-            src-tauri/gen/android/app/src/main/AndroidManifest.xml
+          python3 - <<'PYEOF'
+          import xml.etree.ElementTree as ET
+
+          path = "src-tauri/gen/android/app/src/main/AndroidManifest.xml"
+          ANDROID_NS = "http://schemas.android.com/apk/res/android"
+          TOOLS_NS = "http://schemas.android.com/tools"
+          ET.register_namespace("android", ANDROID_NS)
+          ET.register_namespace("tools", TOOLS_NS)
+
+          tree = ET.parse(path)
+          app = tree.getroot().find("application")
+          if app is None:
+              raise SystemExit("no <application> element found in AndroidManifest.xml")
+          app.set(f"{{{ANDROID_NS}}}usesCleartextTraffic", "true")
+          tree.write(path, encoding="utf-8", xml_declaration=True)
+          print("Patched", path)
+          PYEOF
           grep -q 'usesCleartextTraffic' src-tauri/gen/android/app/src/main/AndroidManifest.xml
 
       - name: Build debug-signed APK
