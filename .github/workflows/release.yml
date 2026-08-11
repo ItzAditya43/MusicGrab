@@ -258,28 +258,44 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: |
-            adb install musicgrab-android-x86_64-debug.apk
-            adb shell am start -n app.musicgrab.mobile/.MainActivity
-            sleep 8
             mkdir -p screenshots
+            adb logcat -c
+
+            adb install musicgrab-android-x86_64-debug.apk
+            echo "installed packages matching musicgrab:"
+            adb shell pm list packages | grep -i musicgrab || echo "(none found)"
+
+            adb shell am start -n app.musicgrab.mobile/.MainActivity
+            sleep 15
             adb exec-out screencap -p > screenshots/01-home.png
+            # Capture logcat now, before anything below has a chance to
+            # abort the script and lose it — this is the actual diagnostic
+            # for whether the app launched/rendered correctly.
+            adb logcat -d > screenshots/01-logcat.txt
 
             # Tap the bottom tab bar's "Your Library" position (3rd of 5
             # tabs) and "Search" (2nd of 5), screenshotting each — proves
             # navigation actually responds to touch, not just that it
-            # renders.
-            size=$(adb shell wm size | grep -oE '[0-9]+x[0-9]+')
+            # renders. `wm size` can print both a "Physical size" and an
+            # "Override size" line — take only the first match, and strip
+            # any \r since adb shell output is CRLF-terminated.
+            size=$(adb shell wm size | grep -oE '[0-9]+x[0-9]+' | head -1 | tr -d '\r')
             w=$(echo "$size" | cut -dx -f1)
             h=$(echo "$size" | cut -dx -f2)
+            echo "screen size: raw='$size' w='$w' h='$h'"
             bar_y=$((h - 60))
-            adb shell input tap $((w * 3 / 10)) $bar_y
+            tap_x_search=$((w * 3 / 10))
+            tap_x_library=$((w * 5 / 10))
+            echo "tapping search at $tap_x_search,$bar_y"
+            adb shell input tap $tap_x_search $bar_y
             sleep 2
             adb exec-out screencap -p > screenshots/02-search-tab.png
-            adb shell input tap $((w * 5 / 10)) $bar_y
+            echo "tapping library at $tap_x_library,$bar_y"
+            adb shell input tap $tap_x_library $bar_y
             sleep 2
             adb exec-out screencap -p > screenshots/03-library-tab.png
 
-            adb logcat -d > screenshots/logcat.txt
+            adb logcat -d > screenshots/02-logcat-final.txt
 
       - name: Upload emulator screenshots
         if: always()
