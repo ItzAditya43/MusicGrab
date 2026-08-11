@@ -230,14 +230,21 @@ import { ANIMATIONS, animationManager } from "./bg-animations.js";
 
   // ---------------- Downloads ----------------
 
-  el("add-form").addEventListener("submit", (e) => {
-    e.preventDefault();
-    const input = el("add-url");
-    const url = input.value.trim();
-    if (!url) return;
-    input.value = "";
-    startDownload(url);
-  });
+  function wireAddForm(formId, inputId) {
+    el(formId).addEventListener("submit", (e) => {
+      e.preventDefault();
+      const input = el(inputId);
+      const url = input.value.trim();
+      if (!url) return;
+      input.value = "";
+      startDownload(url);
+    });
+  }
+  wireAddForm("add-form", "add-url");
+  // Narrow-screen (phone) layout hides the sidebar's add-form entirely —
+  // see the bottom-tab-bar rules in app.css — so there's a second,
+  // separately-visible paste-a-link form at the top of the main view.
+  wireAddForm("mobile-add-form", "mobile-add-url");
 
   async function startDownload(url) {
     if (IS_ANDROID_APP) {
