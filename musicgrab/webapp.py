@@ -133,6 +133,14 @@ def _run_youtube_job(job_id: str, url: str, output_dir: Path) -> None:
 def _run_spotify_job(job_id: str, url: str, output_dir: Path) -> None:
     from musicgrab.utils import sanitize_path_component
 
+    if not config.get_spotify_credentials():
+        _update_job(
+            job_id,
+            status="failed",
+            message="Spotify isn't configured — add a Client ID and Secret in Settings first.",
+        )
+        return
+
     content_type = "playlist" if "playlist" in url else ("album" if "album" in url else "track")
 
     if content_type == "playlist":
