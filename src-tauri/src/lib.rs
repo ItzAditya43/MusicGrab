@@ -92,6 +92,35 @@ mod desktop {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Two independent WebKitGTK-on-Linux issues that both manifest as the
+    // same symptom: a window that opens, shows its title bar, and then
+    // stays permanently blank/transparent (the desktop behind it visibly
+    // bleeds through) with no crash and no error anywhere:
+    //
+    // 1. The DMA-BUF renderer can simply fail to paint on some Wayland
+    //    compositors. Falling back to the software/EGL path avoids it.
+    // 2. WebKitGTK's bubblewrap sandbox puts the WebProcess in its own
+    //    network namespace, which can (intermittently — this was
+    //    observed to work on some launches and not others) fail to reach
+    //    127.0.0.1, silently hanging the desktop app's local sidecar
+    //    server navigation forever. Confirmed as the actual root cause
+    //    by reproducing and fixing it live: WEBKIT_FORCE_SANDBOX=0 turned
+    //    a reliably-blank window into a working one. The sidecar we talk
+    //    to is our own spawned process on loopback only, so disabling
+    //    the sandbox here isn't giving up any real isolation.
+    //
+    // Both must be set before the webview is created. No-op on
+    // X11/Windows/macOS.
+    #[cfg(all(desktop, target_os = "linux"))]
+    {
+        // SAFETY: called at process startup, single-threaded, before any
+        // webview (and therefore any thread reading these vars) is created.
+        unsafe {
+            std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+            std::env::set_var("WEBKIT_FORCE_SANDBOX", "0");
+        }
+    }
+
     let mut builder = tauri::Builder::default();
 
     #[cfg(desktop)]
