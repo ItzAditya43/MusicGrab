@@ -15,6 +15,8 @@ import { ANIMATIONS, animationManager } from "./bg-animations.js";
     lyrics: null,       // { found, plain, synced } for the current track
     lyricsTrackId: null,
     lyricsOpen: false,
+    nowPlayingOpen: false,
+    nowPlayingLyricsOpen: false,
   };
 
   const el = (id) => document.getElementById(id);
@@ -508,9 +510,52 @@ import { ANIMATIONS, animationManager } from "./bg-animations.js";
     audio.play().catch(() => {});
     el("player-title").textContent = track.title || "Unknown";
     el("player-artist").textContent = track.artist || "Unknown artist";
+    el("now-playing-art").src = el("player-art").src || "";
+    el("now-playing-title").textContent = track.title || "Unknown";
+    el("now-playing-artist").textContent = track.artist || "Unknown artist";
     refreshPlayingHighlight();
     loadLyrics(track);
   }
+
+  // ---------------- Now Playing (Walkman-style full view) ----------------
+
+  function openNowPlaying() {
+    state.nowPlayingOpen = true;
+    el("now-playing").hidden = false;
+    if (state.nowPlayingLyricsOpen) renderLyrics();
+  }
+  function closeNowPlaying() {
+    state.nowPlayingOpen = false;
+    el("now-playing").hidden = true;
+  }
+  el("player-art-wrap").addEventListener("click", openNowPlaying);
+  el("now-playing-close").addEventListener("click", closeNowPlaying);
+
+  el("now-playing-play").addEventListener("click", () => el("play-btn").click());
+  el("now-playing-prev").addEventListener("click", () => el("prev-btn").click());
+  el("now-playing-next").addEventListener("click", () => el("next-btn").click());
+
+  el("now-playing-seek").addEventListener("input", () => {
+    if (!audio.duration) return;
+    audio.currentTime = (el("now-playing-seek").value / 100) * audio.duration;
+  });
+
+  el("now-playing-lyrics-toggle").addEventListener("click", () => {
+    state.nowPlayingLyricsOpen = !state.nowPlayingLyricsOpen;
+    el("now-playing-lyrics").hidden = !state.nowPlayingLyricsOpen;
+    el("now-playing-lyrics-toggle").classList.toggle("active", state.nowPlayingLyricsOpen);
+    if (state.nowPlayingLyricsOpen) renderLyrics();
+  });
+
+  el("now-playing-lyrics-download").addEventListener("click", () => {
+    const track = state.queue[state.queueIndex];
+    if (!track) return;
+    if (IS_ANDROID_APP) {
+      alert("Lyrics download isn't available in the standalone Android app yet.");
+      return;
+    }
+    window.open(`/api/lyrics/${track.id}/download`, "_blank");
+  });
 
   // ---------------- Lyrics ----------------
 
@@ -538,8 +583,7 @@ import { ANIMATIONS, animationManager } from "./bg-animations.js";
     if (state.lyricsOpen) renderLyrics();
   }
 
-  function renderLyrics() {
-    const body = el("lyrics-body");
+  function renderLyricsInto(body) {
     body.innerHTML = "";
 
     if (!state.queue[state.queueIndex]) {
@@ -574,9 +618,13 @@ import { ANIMATIONS, animationManager } from "./bg-animations.js";
     }
   }
 
-  function updateLyricsHighlight() {
-    if (!state.lyricsOpen || !state.lyrics || !state.lyrics.synced) return;
-    const lines = el("lyrics-body").querySelectorAll(".lyrics-line");
+  function renderLyrics() {
+    renderLyricsInto(el("lyrics-body"));
+    if (state.nowPlayingLyricsOpen) renderLyricsInto(el("now-playing-lyrics"));
+  }
+
+  function updateLyricsHighlightIn(container) {
+    const lines = container.querySelectorAll(".lyrics-line");
     if (!lines.length) return;
     let activeIndex = -1;
     lines.forEach((line, i) => {
@@ -586,6 +634,12 @@ import { ANIMATIONS, animationManager } from "./bg-animations.js";
     if (activeIndex >= 0) {
       lines[activeIndex].scrollIntoView({ block: "center", behavior: "smooth" });
     }
+  }
+
+  function updateLyricsHighlight() {
+    if (!state.lyrics || !state.lyrics.synced) return;
+    if (state.lyricsOpen) updateLyricsHighlightIn(el("lyrics-body"));
+    if (state.nowPlayingLyricsOpen) updateLyricsHighlightIn(el("now-playing-lyrics"));
   }
 
   el("lyrics-btn").addEventListener("click", () => {
@@ -601,11 +655,13 @@ import { ANIMATIONS, animationManager } from "./bg-animations.js";
     el("lyrics-btn").classList.remove("active");
   });
 
-  el("lyrics-body").addEventListener("click", (e) => {
+  function onLyricsLineClick(e) {
     const line = e.target.closest(".lyrics-line");
     if (!line || !audio.duration) return;
     audio.currentTime = parseFloat(line.dataset.time);
-  });
+  }
+  el("lyrics-body").addEventListener("click", onLyricsLineClick);
+  el("now-playing-lyrics").addEventListener("click", onLyricsLineClick);
 
   function refreshPlayingHighlight() {
     [el("library-list"), el("search-results")].forEach((container) => {
@@ -622,8 +678,14 @@ import { ANIMATIONS, animationManager } from "./bg-animations.js";
     }
   });
 
-  audio.addEventListener("play", () => (el("play-icon").outerHTML = ICONS.pause.replace("<svg", '<svg id="play-icon"')));
-  audio.addEventListener("pause", () => (el("play-icon").outerHTML = ICONS.play.replace("<svg", '<svg id="play-icon"')));
+  audio.addEventListener("play", () => {
+    el("play-icon").outerHTML = ICONS.pause.replace("<svg", '<svg id="play-icon"');
+    el("now-playing-play-icon").outerHTML = ICONS.pause.replace("<svg", '<svg id="now-playing-play-icon"');
+  });
+  audio.addEventListener("pause", () => {
+    el("play-icon").outerHTML = ICONS.play.replace("<svg", '<svg id="play-icon"');
+    el("now-playing-play-icon").outerHTML = ICONS.play.replace("<svg", '<svg id="now-playing-play-icon"');
+  });
 
   el("next-btn").addEventListener("click", () => {
     if (state.queueIndex + 1 < state.queue.length) {
@@ -643,9 +705,13 @@ import { ANIMATIONS, animationManager } from "./bg-animations.js";
 
   audio.addEventListener("timeupdate", () => {
     if (!audio.duration) return;
-    el("seek").value = (audio.currentTime / audio.duration) * 100;
+    const pct = (audio.currentTime / audio.duration) * 100;
+    el("seek").value = pct;
     el("time-current").textContent = formatDuration(audio.currentTime);
     el("time-total").textContent = formatDuration(audio.duration);
+    el("now-playing-seek").value = pct;
+    el("now-playing-time-current").textContent = formatDuration(audio.currentTime);
+    el("now-playing-time-total").textContent = formatDuration(audio.duration);
     updateLyricsHighlight();
   });
 

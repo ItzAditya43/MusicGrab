@@ -30,6 +30,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <link rel="stylesheet" href="/app.css" />
+  <link rel="stylesheet" href="/walkman.css" />
 </head>
 <body>
   <div id="app" class="app">
@@ -232,7 +233,7 @@
 
     <footer class="player" id="player">
       <div class="player-track">
-        <div class="player-art-wrap">
+        <div class="player-art-wrap" id="player-art-wrap" title="Now Playing">
           <img id="player-art" class="player-art" alt="" />
         </div>
         <div class="player-meta">
@@ -274,6 +275,69 @@
         <input type="range" id="volume" min="0" max="1" step="0.01" value="1" />
       </div>
     </footer>
+
+    <section class="now-playing" id="now-playing" hidden>
+      <div class="now-playing-header">
+        <span class="eyebrow">Now Playing</span>
+        <button id="now-playing-close" class="now-playing-close" title="Close">
+          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="m6 6 12 12M18 6 6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="now-playing-art-wrap">
+        <img id="now-playing-art" class="now-playing-art" alt="" />
+      </div>
+
+      <div class="now-playing-meta">
+        <div class="now-playing-title" id="now-playing-title">Not playing</div>
+        <div class="now-playing-artist" id="now-playing-artist">Select a track to begin</div>
+      </div>
+
+      <div class="now-playing-seek">
+        <input type="range" id="now-playing-seek" min="0" max="100" value="0" />
+        <div class="now-playing-seek-row">
+          <span id="now-playing-time-current">0:00</span>
+          <span style="flex:1"></span>
+          <span id="now-playing-time-total">0:00</span>
+        </div>
+      </div>
+
+      <div class="now-playing-transport">
+        <button id="now-playing-prev" class="now-playing-transport-btn" title="Previous">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 5h2v14H7zM17 5v14l-10-7z"/></svg>
+        </button>
+        <button id="now-playing-play" class="now-playing-play" title="Play/Pause">
+          <svg id="now-playing-play-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+        </button>
+        <button id="now-playing-next" class="now-playing-transport-btn" title="Next">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M15 5h2v14h-2zM7 5v14l10-7z"/></svg>
+        </button>
+      </div>
+
+      <div class="now-playing-actions">
+        <button id="now-playing-lyrics-toggle" class="now-playing-action-btn">
+          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M5 4h11l3 3v13H5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+            <path d="M8 10h8M8 13h8M8 16h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          </svg>
+          Lyrics
+        </button>
+        <button id="now-playing-lyrics-download" class="now-playing-action-btn" title="Download lyrics">
+          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 4v11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+            <path d="m7 11 5 5 5-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M5 19h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          </svg>
+          Save .lrc
+        </button>
+      </div>
+
+      <div class="now-playing-lyrics" id="now-playing-lyrics" hidden>
+        <p class="muted">Play a track to see its lyrics.</p>
+      </div>
+    </section>
 
     <aside class="lyrics-panel" id="lyrics-panel" hidden>
       <div class="lyrics-panel-header">

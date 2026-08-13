@@ -1,0 +1,256 @@
+/* ---------------------------------------------------------------------
+   Walkman player skin — styled after Sony's NWZ/NW-A "Walkman" app UI
+   from ~2012-2015: gunmetal brushed-metal panels, a single amber/orange
+   accent, a chunky circular transport, and a full-screen Now Playing
+   view with big centered art. This is a fixed hardware skin, not part
+   of the 20-color theme system — the rest of the app (library, search,
+   settings) keeps using CSS variables from themes.js, but the player
+   itself intentionally looks the same regardless of theme, the way a
+   real Walkman's playback screen didn't reskin itself either.
+   --------------------------------------------------------------------- */
+
+:root {
+  --wm-bg-top: #232326;
+  --wm-bg-bottom: #131315;
+  --wm-panel: #1b1b1e;
+  --wm-panel-raised: #29292d;
+  --wm-accent: #ff8a1e;
+  --wm-accent-dim: #b85e12;
+  --wm-accent-glow: rgba(255, 138, 30, 0.45);
+  --wm-text: #f2ede4;
+  --wm-text-muted: #9a968f;
+  --wm-groove: #0c0c0d;
+}
+
+/* ---------- Mini player bar ---------- */
+
+.player {
+  background: linear-gradient(180deg, var(--wm-bg-top), var(--wm-bg-bottom)) !important;
+  border-top: 1px solid #000 !important;
+  box-shadow: 0 -1px 0 rgba(255, 255, 255, 0.04) inset, 0 -10px 24px rgba(0, 0, 0, 0.45) !important;
+}
+
+.player-art-wrap {
+  cursor: pointer;
+  border-radius: 5px !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6) !important;
+  transition: transform 0.15s ease;
+}
+.player-art-wrap:hover { transform: scale(1.04); }
+
+.player-title { color: var(--wm-text) !important; }
+.player-artist { color: var(--wm-text-muted) !important; }
+
+.transport-btn {
+  color: var(--wm-text-muted) !important;
+}
+.transport-btn:hover {
+  color: var(--wm-accent) !important;
+  background: var(--wm-panel-raised) !important;
+  filter: drop-shadow(0 0 5px var(--wm-accent-glow)) !important;
+}
+
+.play-btn {
+  background: radial-gradient(circle at 32% 28%, #ffb35c, var(--wm-accent) 55%, var(--wm-accent-dim) 100%) !important;
+  box-shadow: 0 2px 0 var(--wm-accent-dim), 0 4px 10px rgba(0, 0, 0, 0.5), 0 0 16px var(--wm-accent-glow) !important;
+  color: #1a0d00 !important;
+}
+.play-btn:active { transform: scale(0.95) translateY(1px); }
+
+.seek-row { color: var(--wm-accent) !important; }
+.player .seek-row input[type="range"],
+.player .player-volume input[type="range"] {
+  background: var(--wm-groove) !important;
+  border-color: rgba(255, 255, 255, 0.06) !important;
+}
+.player .seek-row input[type="range"]::-webkit-slider-thumb,
+.player .player-volume input[type="range"]::-webkit-slider-thumb {
+  background: var(--wm-accent) !important;
+  box-shadow: 0 0 8px var(--wm-accent-glow) !important;
+}
+.player .seek-row input[type="range"]::-moz-range-thumb,
+.player .player-volume input[type="range"]::-moz-range-thumb {
+  background: var(--wm-accent) !important;
+  box-shadow: 0 0 8px var(--wm-accent-glow) !important;
+}
+
+.lyrics-toggle:hover { border-color: var(--wm-accent) !important; color: var(--wm-accent) !important; }
+.lyrics-toggle.active { border-color: var(--wm-accent) !important; color: var(--wm-accent) !important; box-shadow: 0 0 10px var(--wm-accent-glow) !important; }
+
+/* ---------- Now Playing overlay ---------- */
+
+.now-playing {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  background: linear-gradient(165deg, var(--wm-bg-top), var(--wm-bg-bottom) 65%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 28px 24px 24px;
+  color: var(--wm-text);
+  font-family: "Inter", sans-serif;
+}
+.now-playing[hidden] { display: none; }
+
+.now-playing-header {
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+.now-playing-header .eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--wm-text-muted);
+}
+.now-playing-close {
+  background: var(--wm-panel-raised);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--wm-text-muted);
+  border-radius: 50%;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.now-playing-close:hover { color: var(--wm-accent); border-color: var(--wm-accent); }
+.now-playing-close svg { width: 15px; height: 15px; }
+
+.now-playing-art-wrap {
+  width: min(78vw, 340px);
+  height: min(78vw, 340px);
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--wm-panel);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(0, 0, 0, 0.4);
+  flex-shrink: 0;
+}
+.now-playing-art { width: 100%; height: 100%; object-fit: cover; }
+
+.now-playing-meta { text-align: center; margin: 22px 0 6px; max-width: 420px; }
+.now-playing-title { font-size: 21px; font-weight: 800; letter-spacing: 0.01em; }
+.now-playing-artist { font-size: 14.5px; color: var(--wm-text-muted); margin-top: 5px; }
+
+.now-playing-seek {
+  width: 100%;
+  max-width: 420px;
+  margin-top: 22px;
+}
+.now-playing-seek-row { display: flex; align-items: center; gap: 10px; font-size: 12px; font-family: var(--font-mono, monospace); color: var(--wm-text-muted); }
+.now-playing-seek input[type="range"] {
+  width: 100%;
+  height: 5px;
+  background: var(--wm-groove);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 3px;
+}
+.now-playing-seek input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--wm-accent);
+  box-shadow: 0 0 10px var(--wm-accent-glow);
+  cursor: pointer;
+}
+.now-playing-seek input[type="range"]::-moz-range-thumb {
+  width: 15px;
+  height: 15px;
+  border: none;
+  border-radius: 50%;
+  background: var(--wm-accent);
+  box-shadow: 0 0 10px var(--wm-accent-glow);
+  cursor: pointer;
+}
+
+.now-playing-transport {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 30px;
+  margin-top: 26px;
+}
+.now-playing-transport-btn {
+  background: var(--wm-panel-raised);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--wm-text);
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.4);
+}
+.now-playing-transport-btn:active { transform: scale(0.94); }
+.now-playing-transport-btn svg { width: 22px; height: 22px; }
+
+.now-playing-play {
+  width: 78px;
+  height: 78px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 32% 28%, #ffb35c, var(--wm-accent) 55%, var(--wm-accent-dim) 100%);
+  color: #1a0d00;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 3px 0 var(--wm-accent-dim), 0 8px 20px rgba(0, 0, 0, 0.5), 0 0 24px var(--wm-accent-glow);
+}
+.now-playing-play:active { transform: scale(0.96) translateY(1px); }
+.now-playing-play svg { width: 30px; height: 30px; }
+
+.now-playing-actions {
+  display: flex;
+  gap: 14px;
+  margin-top: 26px;
+}
+.now-playing-action-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--wm-panel-raised);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--wm-text-muted);
+  border-radius: 20px;
+  padding: 8px 16px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.now-playing-action-btn:hover { color: var(--wm-accent); border-color: var(--wm-accent); }
+.now-playing-action-btn svg { width: 15px; height: 15px; }
+.now-playing-action-btn.active { color: var(--wm-accent); border-color: var(--wm-accent); box-shadow: 0 0 10px var(--wm-accent-glow); }
+
+.now-playing-lyrics {
+  width: 100%;
+  max-width: 420px;
+  margin-top: 20px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  text-align: center;
+  padding-bottom: 20px;
+}
+.now-playing-lyrics .lyrics-line {
+  padding: 6px 0;
+  color: var(--wm-text-muted);
+  font-size: 15px;
+  transition: color 0.2s ease, transform 0.2s ease;
+}
+.now-playing-lyrics .lyrics-line.active {
+  color: var(--wm-accent);
+  font-weight: 700;
+  transform: scale(1.03);
+}
+.now-playing-lyrics .muted { color: var(--wm-text-muted); font-size: 13px; }
+
+@media (max-width: 480px) {
+  .now-playing-art-wrap { width: 82vw; height: 82vw; }
+}

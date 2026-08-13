@@ -968,7 +968,7 @@ input[type="range"]::-moz-range-thumb {
 @media (max-width: 720px) {
   .app {
     grid-template-columns: 1fr;
-    grid-template-rows: 1fr 64px 92px;
+    grid-template-rows: 1fr 64px 64px;
   }
 
   /* The sidebar becomes a bottom tab bar instead of disappearing —
@@ -1036,7 +1036,26 @@ input[type="range"]::-moz-range-thumb {
     font-size: 12px;
   }
 
-  .player { grid-column: 1 / 2; grid-row: 3; grid-template-columns: 1fr; grid-template-rows: auto auto; gap: 10px; padding: 10px 14px; }
+  /* The mini player bar is deliberately minimal on phones (art, title,
+     play/pause) — full transport, seek, and lyrics live in the Now
+     Playing overlay (tap the art to open it), the same way a real
+     mobile player's mini-bar hands off to a full-screen player instead
+     of cramming every control into a ~90px strip. */
+  .player {
+    grid-column: 1 / 2;
+    grid-row: 3;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 10px;
+    padding: 0 14px;
+  }
+  .player-art-wrap { width: 40px; height: 40px; }
+  .player-controls { display: contents; }
+  .transport { gap: 0; }
+  .transport-btn { display: none; }
+  .play-btn { width: 38px; height: 38px; }
+  .play-btn svg { width: 16px; height: 16px; }
+  .seek-row { display: none; }
   .player-volume { display: none; }
-  .lyrics-panel { width: 100vw; bottom: 156px; }
+  .lyrics-panel { width: 100vw; bottom: 64px; }
 }

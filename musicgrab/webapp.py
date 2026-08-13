@@ -375,13 +375,13 @@ def _parse_synced_lyrics(raw: str) -> list[dict]:
     return lines
 
 
-@app.get("/api/lyrics/{track_id}")
-def track_lyrics(track_id: str):
-    track = _find_track_by_id(track_id)
-    if not track:
-        raise HTTPException(404, "Track not found")
+def _fetch_lyrics(track, cache_key: str) -> dict:
+    """Look up lyrics for a track on lrclib.net, caching the raw result.
 
-    cache_key = track_id
+    Cache holds `synced_raw` (LRC text) alongside the parsed form so the
+    .lrc download endpoint can reuse the exact same lookup instead of
+    hitting lrclib a second time.
+    """
     if cache_key in _lyrics_cache:
         return _lyrics_cache[cache_key]
 
@@ -420,7 +420,7 @@ def track_lyrics(track_id: str):
             data = None
 
     if not data:
-        result = {"found": False, "plain": None, "synced": None}
+        result = {"found": False, "plain": None, "synced": None, "synced_raw": None}
         _lyrics_cache[cache_key] = result
         return result
 
@@ -430,9 +430,58 @@ def track_lyrics(track_id: str):
         "found": bool(plain or synced_raw),
         "plain": plain,
         "synced": _parse_synced_lyrics(synced_raw) if synced_raw else None,
+        "synced_raw": synced_raw,
     }
     _lyrics_cache[cache_key] = result
     return result
+
+
+@app.get("/api/lyrics/{track_id}")
+def track_lyrics(track_id: str):
+    track = _find_track_by_id(track_id)
+    if not track:
+        raise HTTPException(404, "Track not found")
+    result = _fetch_lyrics(track, track_id)
+    return {k: v for k, v in result.items() if k != "synced_raw"}
+
+
+@app.get("/api/lyrics/{track_id}/download")
+def download_lyrics(track_id: str):
+    track = _find_track_by_id(track_id)
+    if not track:
+        raise HTTPException(404, "Track not found")
+
+    result = _fetch_lyrics(track, track_id)
+    if not result["found"]:
+        raise HTTPException(404, "No lyrics found for this track")
+
+    from urllib.parse import quote
+
+    from fastapi.responses import Response
+
+    from musicgrab.utils import sanitize_path_component
+
+    safe_name = sanitize_path_component(f"{track.artist} - {track.title}")
+    # Content-Disposition header values must be latin-1; track names can
+    # contain arbitrary unicode (e.g. YouTube titles with "–" or emoji), so
+    # use an ASCII-only fallback filename plus the RFC 5987 filename* form
+    # for browsers that render the real one.
+    ascii_name = safe_name.encode("ascii", "ignore").decode("ascii").strip() or "lyrics"
+
+    def _disposition(ext: str) -> str:
+        return f"attachment; filename=\"{ascii_name}{ext}\"; filename*=UTF-8''{quote(safe_name + ext)}"
+
+    if result["synced_raw"]:
+        return Response(
+            content=result["synced_raw"],
+            media_type="text/plain; charset=utf-8",
+            headers={"Content-Disposition": _disposition(".lrc")},
+        )
+    return Response(
+        content=result["plain"],
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": _disposition(".txt")},
+    )
 
 
 # ---------------------------------------------------------------------------
