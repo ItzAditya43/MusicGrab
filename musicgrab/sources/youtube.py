@@ -313,8 +313,10 @@ class YouTubeSource:
             "yt-dlp",
             "--print", "%(id)s\t%(title)s\t%(duration)s",
             "--no-warnings",
-            "--playlist-items", f"1:{max_results}",
-            f"ytsearch:{query}",
+            # ytsearch: (no count) only ever fetches a single result no
+            # matter what --playlist-items says — the count has to be
+            # baked into the search spec itself (ytsearchN:).
+            f"ytsearch{max_results}:{query}",
         ]
         result = subprocess.run(cmd, capture_output=True, text=True, env=_subprocess_env())
         if result.returncode != 0:
