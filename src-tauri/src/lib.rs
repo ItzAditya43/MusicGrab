@@ -103,11 +103,16 @@ pub fn run() {
     //    network namespace, which can (intermittently — this was
     //    observed to work on some launches and not others) fail to reach
     //    127.0.0.1, silently hanging the desktop app's local sidecar
-    //    server navigation forever. Confirmed as the actual root cause
-    //    by reproducing and fixing it live: WEBKIT_FORCE_SANDBOX=0 turned
-    //    a reliably-blank window into a working one. The sidecar we talk
-    //    to is our own spawned process on loopback only, so disabling
-    //    the sandbox here isn't giving up any real isolation.
+    //    server navigation forever. The sidecar we talk to is our own
+    //    spawned process on loopback only, so disabling the sandbox here
+    //    isn't giving up any real isolation that matters.
+    //
+    //    IMPORTANT: newer webkit2gtk (2.4x+) silently ignores the old
+    //    WEBKIT_FORCE_SANDBOX=0 — it prints a runtime warning ("no longer
+    //    allows disabling the sandbox") and keeps the sandbox on. The
+    //    variable that actually still works is the deliberately scary
+    //    WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1. Set both so this
+    //    works across old and new webkit2gtk alike.
     //
     // Both must be set before the webview is created. No-op on
     // X11/Windows/macOS.
@@ -118,6 +123,7 @@ pub fn run() {
         unsafe {
             std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
             std::env::set_var("WEBKIT_FORCE_SANDBOX", "0");
+            std::env::set_var("WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS", "1");
         }
     }
 
