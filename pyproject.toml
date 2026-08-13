@@ -29,7 +29,7 @@ classifiers = [
 
 dependencies = [
     "yt-dlp>=2024.1.0",
-    "spotipy>=2.23.0",
+    "spotifyscraper>=3.9.0",
     "mutagen>=1.47.0",
     "rich>=13.7.0",
     "click>=8.1.7",

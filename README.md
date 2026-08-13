@@ -180,18 +180,6 @@ pip install -e .
   - Windows: [ffmpeg.org](https://ffmpeg.org/download.html)
 - **yt-dlp** — installed automatically as a dependency
 
-### Spotify setup (optional)
-
-Only needed to search/download Spotify links.
-
-1. Create an app at the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard)
-2. Copy the Client ID and Client Secret
-3. Either run `musicgrab config spotify`, set them in the web app's Settings page, or export:
-   ```bash
-   export SPOTIPY_CLIENT_ID="your_client_id"
-   export SPOTIPY_CLIENT_SECRET="your_client_secret"
-   ```
-
 ## Usage
 
 ### Web app

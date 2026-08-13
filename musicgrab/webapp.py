@@ -133,14 +133,6 @@ def _run_youtube_job(job_id: str, url: str, output_dir: Path) -> None:
 def _run_spotify_job(job_id: str, url: str, output_dir: Path) -> None:
     from musicgrab.utils import sanitize_path_component
 
-    if not config.get_spotify_credentials():
-        _update_job(
-            job_id,
-            status="failed",
-            message="Spotify isn't configured — add a Client ID and Secret in Settings first.",
-        )
-        return
-
     content_type = "playlist" if "playlist" in url else ("album" if "album" in url else "track")
 
     if content_type == "playlist":
@@ -258,7 +250,7 @@ def search(q: str, source: str = "all", limit: int = 15):
         for t in youtube_source.search(q, max_results=limit):
             t.source = "youtube"
             results.append(_track_to_public(t))
-    if source in ("spotify", "all") and config.get_spotify_credentials():
+    if source in ("spotify", "all"):
         for t in spotify_source.search(q, max_results=limit):
             t.source = "spotify"
             results.append(_track_to_public(t))
@@ -502,8 +494,6 @@ class ConfigUpdate(BaseModel):
     audio_quality: Optional[str] = None
     embed_metadata: Optional[bool] = None
     save_artwork: Optional[bool] = None
-    spotify_client_id: Optional[str] = None
-    spotify_client_secret: Optional[str] = None
 
 
 @app.get("/api/config")
@@ -515,7 +505,6 @@ def get_config_api():
         "audio_quality": config.audio_quality,
         "embed_metadata": config.embed_metadata,
         "save_artwork": config.save_artwork,
-        "spotify_configured": bool(config.spotify_client_id),
     }
 
 

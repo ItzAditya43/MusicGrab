@@ -63,6 +63,7 @@ jobs:
           --paths .
           --add-data "musicgrab/web:musicgrab/web"
           --collect-all yt_dlp
+          --collect-all spotify_scraper
           --collect-submodules musicgrab
           --hidden-import uvicorn.logging
           --hidden-import uvicorn.loops

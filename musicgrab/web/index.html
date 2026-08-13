@@ -125,7 +125,7 @@
             <circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="1.8"/>
             <path d="m20 20-4.3-4.3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
           </svg>
-          <input id="search-input" type="text" placeholder="Search YouTube (and Spotify, if configured)" autocomplete="off" />
+          <input id="search-input" type="text" placeholder="Search YouTube and Spotify" autocomplete="off" />
           <button type="submit">Search</button>
         </form>
         <div class="track-list" id="search-results"></div>
@@ -179,12 +179,6 @@
           <label class="checkbox">
             <input type="checkbox" id="s-artwork" /> Save album artwork
           </label>
-
-          <hr />
-          <h3>Spotify <span class="tag-optional">optional</span></h3>
-          <p class="muted">Needed only to search or download Spotify links. Get keys from the Spotify developer dashboard.</p>
-          <label>Client ID <input type="text" id="s-spotify-id" placeholder="Spotify Client ID" /></label>
-          <label>Client Secret <input type="password" id="s-spotify-secret" placeholder="Spotify Client Secret" /></label>
 
           <button type="submit">Save settings</button>
           <span class="save-note" id="settings-saved" hidden>Saved</span>

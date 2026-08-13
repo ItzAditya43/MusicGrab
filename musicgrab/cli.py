@@ -667,8 +667,6 @@ def config_show() -> None:
     table.add_row("Embed Artwork", str(config.embed_artwork))
     table.add_row("Save Artwork", str(config.save_artwork))
     table.add_row("Overwrite", str(config.overwrite))
-    table.add_row("Spotify Client ID", config.spotify_client_id or "(not set)")
-    table.add_row("Spotify Client Secret", "****" if config.spotify_client_secret else "(not set)")
     console.print(table)
 
 
@@ -694,13 +692,6 @@ def config_set(key: str, value: str) -> None:
     setattr(config, key, value)
     config.save()
     print_success(f"Set {key} = {value}")
-
-
-@config_cmd.command("spotify")
-def config_spotify() -> None:
-    """Configure Spotify API credentials."""
-    from musicgrab.config import configure_spotify
-    configure_spotify()
 
 
 @main.group()
@@ -754,7 +745,6 @@ def info() -> None:
     table.add_row("Library Dir", str(config.library_dir))
     table.add_row("Audio Format", config.audio_format)
     table.add_row("Audio Quality", f"{config.audio_quality}kbps")
-    table.add_row("Spotify Configured", "✓ Yes" if config.spotify_client_id else "✗ No")
     console.print(table)
 
 

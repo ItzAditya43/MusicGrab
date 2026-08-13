@@ -366,8 +366,6 @@ import { ANIMATIONS, animationManager } from "./bg-animations.js";
         audio_quality: el("s-quality").value,
         embed_metadata: el("s-metadata").checked,
         save_artwork: el("s-artwork").checked,
-        spotify_client_id: el("s-spotify-id").value || undefined,
-        spotify_client_secret: el("s-spotify-secret").value || undefined,
       }),
     });
     const note = el("settings-saved");
