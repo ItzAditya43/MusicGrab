@@ -304,33 +304,42 @@ class YouTubeSource:
 
     def search(self, query: str, max_results: int = 5) -> List[Track]:
         """Search for tracks on YouTube."""
+        # A tab-delimited --print template sidesteps two footguns of the
+        # legacy --get-id/--get-title/--get-duration flags: their output
+        # order doesn't actually match the flag order (title comes before
+        # id), and --get-duration prints a formatted "M:SS" string rather
+        # than a plain number.
         cmd = [
             "yt-dlp",
-            "--get-id",
-            "--get-title",
-            "--get-duration",
+            "--print", "%(id)s\t%(title)s\t%(duration)s",
+            "--no-warnings",
             "--playlist-items", f"1:{max_results}",
-            f"ytsearch{query}",
+            f"ytsearch:{query}",
         ]
         result = subprocess.run(cmd, capture_output=True, text=True, env=_subprocess_env())
         if result.returncode != 0:
             return []
 
-        lines = result.stdout.strip().split("\n")
         tracks = []
-        for i in range(0, len(lines), 3):
-            if i + 2 < len(lines):
-                video_id = lines[i]
-                title = lines[i + 1]
-                duration = int(lines[i + 2]) if lines[i + 2].isdigit() else 0
-                track = Track(
-                    title=title,
-                    artist="YouTube",
-                    duration=duration,
-                    source="youtube",
-                    source_url=f"https://www.youtube.com/watch?v={video_id}",
-                    source_id=video_id,
-                )
-                tracks.append(track)
+        for line in result.stdout.strip().split("\n"):
+            if not line.strip():
+                continue
+            parts = line.split("\t")
+            if len(parts) != 3:
+                continue
+            video_id, title, duration_raw = parts
+            try:
+                duration = int(float(duration_raw))
+            except ValueError:
+                duration = 0
+            track = Track(
+                title=title,
+                artist="YouTube",
+                duration=duration,
+                source="youtube",
+                source_url=f"https://www.youtube.com/watch?v={video_id}",
+                source_id=video_id,
+            )
+            tracks.append(track)
 
         return tracks
