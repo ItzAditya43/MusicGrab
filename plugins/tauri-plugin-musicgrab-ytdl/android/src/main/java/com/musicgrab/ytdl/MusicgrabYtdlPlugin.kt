@@ -1,6 +1,7 @@
 package com.musicgrab.ytdl
 
 import android.app.Activity
+import android.util.Log
 import android.webkit.WebView
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
@@ -33,6 +34,7 @@ class DownloadArgs {
 @TauriPlugin
 class MusicgrabYtdlPlugin(private val activity: Activity) : Plugin(activity) {
     private var initialized = false
+    private var initError: String? = null
 
     override fun load(webView: WebView) {
         super.load(webView)
@@ -43,8 +45,13 @@ class MusicgrabYtdlPlugin(private val activity: Activity) : Plugin(activity) {
         } catch (e: Exception) {
             // Surfaced as an error on the first command instead of crashing
             // app startup — a failed yt-dlp/ffmpeg init shouldn't take down
-            // the whole webview.
+            // the whole webview. Keep the real exception (class + message)
+            // instead of a generic string — "failed to initialize" alone
+            // gives no way to tell a missing-ABI native lib from a storage
+            // permission problem from anything else.
             initialized = false
+            initError = "${e.javaClass.simpleName}: ${e.message}"
+            Log.e("MusicgrabYtdl", "yt-dlp/ffmpeg init failed", e)
         }
     }
 
@@ -57,7 +64,7 @@ class MusicgrabYtdlPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun search(invoke: Invoke) {
         if (!initialized) {
-            invoke.reject("yt-dlp/ffmpeg failed to initialize")
+            invoke.reject("yt-dlp/ffmpeg failed to initialize: ${initError ?: "unknown"}")
             return
         }
         val args = invoke.parseArgs(SearchArgs::class.java)
@@ -98,7 +105,7 @@ class MusicgrabYtdlPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun download(invoke: Invoke) {
         if (!initialized) {
-            invoke.reject("yt-dlp/ffmpeg failed to initialize")
+            invoke.reject("yt-dlp/ffmpeg failed to initialize: ${initError ?: "unknown"}")
             return
         }
         val args = invoke.parseArgs(DownloadArgs::class.java)
