@@ -165,6 +165,44 @@ jobs:
       - name: Regenerate icons into the now-initialized Android project
         run: cargo tauri icon logo.png -o src-tauri/icons
 
+      # youtubedl-android's plugin manifest declares
+      # android:extractNativeLibs="true" (required — its bundled
+      # Python/ffmpeg are shipped as libpython.zip.so etc., disguised as
+      # native libs so they end up in the APK's per-ABI lib/ folder, but
+      # they're really data archives that need to be physically extracted
+      # to disk, not mmap-loaded like a real .so). Tauri's own generated
+      # app-level manifest explicitly sets it to "false" (a reasonable
+      # default for its own real .so, which doesn't need extraction), and
+      # since the app-level value wins over a library's merge request,
+      # our plugin's "true" was being silently discarded — confirmed via
+      # `adb shell dumpsys package` on a real build showing
+      # extractNativeLibs=false and an empty extracted lib/arm64/
+      # directory, which is exactly why "yt-dlp/ffmpeg failed to
+      # initialize" (FileNotFoundException on libpython.zip.so) happened
+      # on every install. Patch the authoritative app-level manifest
+      # directly so there's no merge ambiguity. XML-aware edit, not sed —
+      # a blind text substitution on "<application" risks corrupting the
+      # file if that substring appears elsewhere (already bit us once
+      # before, see git history).
+      - name: Force extractNativeLibs=true (youtubedl-android needs physical extraction)
+        run: |
+          python3 - <<'PYEOF'
+          import xml.etree.ElementTree as ET
+
+          path = "src-tauri/gen/android/app/src/main/AndroidManifest.xml"
+          ANDROID_NS = "http://schemas.android.com/apk/res/android"
+          ET.register_namespace("android", ANDROID_NS)
+
+          tree = ET.parse(path)
+          app = tree.getroot().find("application")
+          if app is None:
+              raise SystemExit("no <application> element found in AndroidManifest.xml")
+          app.set(f"{{{ANDROID_NS}}}extractNativeLibs", "true")
+          tree.write(path, encoding="utf-8", xml_declaration=True)
+          print("Patched", path)
+          PYEOF
+          grep -q 'extractNativeLibs="true"' src-tauri/gen/android/app/src/main/AndroidManifest.xml
+
       - name: Build debug-signed APK
         env:
           NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
@@ -233,6 +271,25 @@ jobs:
 
       - name: Regenerate icons into the now-initialized Android project
         run: cargo tauri icon logo.png -o src-tauri/icons
+
+      - name: Force extractNativeLibs=true (youtubedl-android needs physical extraction)
+        run: |
+          python3 - <<'PYEOF'
+          import xml.etree.ElementTree as ET
+
+          path = "src-tauri/gen/android/app/src/main/AndroidManifest.xml"
+          ANDROID_NS = "http://schemas.android.com/apk/res/android"
+          ET.register_namespace("android", ANDROID_NS)
+
+          tree = ET.parse(path)
+          app = tree.getroot().find("application")
+          if app is None:
+              raise SystemExit("no <application> element found in AndroidManifest.xml")
+          app.set(f"{{{ANDROID_NS}}}extractNativeLibs", "true")
+          tree.write(path, encoding="utf-8", xml_declaration=True)
+          print("Patched", path)
+          PYEOF
+          grep -q 'extractNativeLibs="true"' src-tauri/gen/android/app/src/main/AndroidManifest.xml
 
       # x86_64, not aarch64 — the real release APK targets phones, but the
       # emulator needs an x86_64 build to run at a usable speed on these
