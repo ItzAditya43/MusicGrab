@@ -6,8 +6,17 @@ Handles downloading audio from YouTube videos and playlists using yt-dlp.
 import json
 import os
 import subprocess
+import threading
 from pathlib import Path
 from typing import List, Optional
+
+# Generous but bounded — a stalled yt-dlp process (network hiccup, retry
+# loop, rate-limit backoff) would otherwise block its calling thread
+# forever with no recovery, which is fatal for an unattended multi-track
+# playlist job: one bad track hangs the entire batch permanently instead
+# of just failing that one track and moving on.
+_METADATA_TIMEOUT = 60
+_DOWNLOAD_TIMEOUT = 600
 
 from musicgrab.models.playlist import Playlist
 from musicgrab.models.track import Track
@@ -60,7 +69,13 @@ class YouTubeSource:
             "--no-warnings",
             url,
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True, env=_subprocess_env())
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, env=_subprocess_env(), timeout=_METADATA_TIMEOUT
+            )
+        except subprocess.TimeoutExpired:
+            print_error(f"Timed out fetching info for: {url}")
+            return {}
         if result.returncode != 0:
             print_error(f"Failed to fetch info: {result.stderr.strip()}")
             return {}
@@ -209,16 +224,32 @@ class YouTubeSource:
             env=_subprocess_env(),
         )
 
-        for line in process.stdout:
-            line = line.strip()
-            if line:
-                if progress_callback:
-                    progress_callback(line)
-                # Parse progress from yt-dlp output
-                if "%" in line:
-                    console.print(f"  {line}")
+        timed_out = False
 
-        process.wait()
+        def _kill_on_timeout():
+            nonlocal timed_out
+            timed_out = True
+            process.kill()
+
+        watchdog = threading.Timer(_DOWNLOAD_TIMEOUT, _kill_on_timeout)
+        watchdog.start()
+        try:
+            for line in process.stdout:
+                line = line.strip()
+                if line:
+                    if progress_callback:
+                        progress_callback(line)
+                    # Parse progress from yt-dlp output
+                    if "%" in line:
+                        console.print(f"  {line}")
+
+            process.wait()
+        finally:
+            watchdog.cancel()
+
+        if timed_out:
+            print_error(f"Timed out downloading: {track.display_title}")
+            return None
 
         # Even if yt-dlp returns non-zero, the file may have been downloaded
         # (e.g., due to warnings). Check for the file first.
@@ -318,7 +349,13 @@ class YouTubeSource:
             # baked into the search spec itself (ytsearchN:).
             f"ytsearch{max_results}:{query}",
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True, env=_subprocess_env())
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, env=_subprocess_env(), timeout=_METADATA_TIMEOUT
+            )
+        except subprocess.TimeoutExpired:
+            print_error(f"Search timed out for: {query}")
+            return []
         if result.returncode != 0:
             return []
 
