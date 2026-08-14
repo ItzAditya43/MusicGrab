@@ -300,7 +300,11 @@ html.has-bg-animation .lyrics-panel {
 .main {
   grid-row: 1 / 2;
   overflow-y: auto;
-  padding: 30px 36px 44px;
+  /* env() resolves to 0 anywhere without a real inset (desktop, most
+     browsers), so this is additive-only where it actually matters — the
+     Android app renders edge-to-edge behind the status bar by default,
+     which otherwise clips the view title under it. */
+  padding: calc(30px + env(safe-area-inset-top, 0px)) 36px 44px;
 }
 
 .topbar h1 {
@@ -1080,7 +1084,16 @@ input[type="range"]::-moz-range-thumb {
 @media (max-width: 720px) {
   .app {
     grid-template-columns: 1fr;
-    grid-template-rows: 1fr 64px 64px;
+    /* calc() + env() so the nav tab bar and player bar are pushed clear
+       of the OS status bar / gesture nav bar on Android (and iOS) rather
+       than rendering underneath them — the app renders edge-to-edge by
+       default, so without this the top title and bottom controls are
+       physically covered by system UI. Falls back to 0 on browsers/OSes
+       without safe-area-inset support (safe, not just untested). */
+    grid-template-rows:
+      1fr
+      64px
+      calc(64px + env(safe-area-inset-bottom, 0px));
   }
 
   /* The sidebar becomes a bottom tab bar instead of disappearing —
@@ -1159,7 +1172,7 @@ input[type="range"]::-moz-range-thumb {
     grid-template-columns: 1fr auto;
     align-items: center;
     gap: 10px;
-    padding: 0 14px;
+    padding: 0 14px env(safe-area-inset-bottom, 0px);
   }
   .player-art-wrap { width: 40px; height: 40px; }
   .player-controls { display: contents; }

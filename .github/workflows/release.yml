@@ -155,6 +155,16 @@ jobs:
           NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
         run: cargo tauri android init --ci
 
+      # `cargo tauri icon` writes mobile icons directly into gen/android's
+      # res/mipmap-* folders, but only if that directory already exists —
+      # our committed src-tauri/icons/android/* was generated before
+      # gen/android existed locally, so it never actually reached the
+      # Android project and every release shipped Tauri's own default
+      # logo instead. Re-running icon generation now, after android init
+      # has created gen/android, is what actually gets our icon in.
+      - name: Regenerate icons into the now-initialized Android project
+        run: cargo tauri icon logo.png -o src-tauri/icons
+
       - name: Build debug-signed APK
         env:
           NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
@@ -220,6 +230,9 @@ jobs:
         env:
           NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
         run: cargo tauri android init --ci
+
+      - name: Regenerate icons into the now-initialized Android project
+        run: cargo tauri icon logo.png -o src-tauri/icons
 
       # x86_64, not aarch64 — the real release APK targets phones, but the
       # emulator needs an x86_64 build to run at a usable speed on these
