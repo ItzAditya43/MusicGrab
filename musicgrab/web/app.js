@@ -164,14 +164,23 @@ import { ANIMATIONS, animationManager } from "./bg-animations.js";
   async function loadLibrary() {
     if (IS_ANDROID_APP) {
       const res = await invoke("plugin:musicgrab-ytdl|list_downloads");
-      state.library = res.files.map((f) => ({
-        id: f.path,
-        title: f.name,
-        artist: "",
-        duration: 0,
-        has_audio: true,
-        source_url: f.path,
-      }));
+      state.library = res.files.map((f) => {
+        // Downloaded files are named "Artist - Title" (see the Kotlin
+        // plugin's download() nameTemplate) — split it back apart so the
+        // library list isn't just a wall of blank-artist rows.
+        const sep = f.name.indexOf(" - ");
+        const artist = sep >= 0 ? f.name.slice(0, sep) : "";
+        const title = sep >= 0 ? f.name.slice(sep + 3) : f.name;
+        return {
+          id: f.path,
+          title,
+          artist,
+          duration: 0,
+          has_audio: true,
+          source_url: f.path,
+          thumbnail: f.thumbnail || "",
+        };
+      });
     } else {
       const data = await api("/api/library");
       state.library = data.tracks;
@@ -349,17 +358,22 @@ import { ANIMATIONS, animationManager } from "./bg-animations.js";
     if (IS_ANDROID_APP) {
       // No job queue on Android — download() blocks until yt-dlp finishes
       // (it runs on a background thread on the Kotlin side, so this await
-      // doesn't block the UI thread there, just this JS call).
+      // doesn't block the UI thread there, just this JS call). Show a
+      // persistent banner rather than just a view-title flicker, which
+      // was easy to miss and left the download with basically no visible
+      // in-progress feedback.
       showView("library");
-      const prevText = el("view-title").textContent;
-      el("view-title").textContent = "Downloading…";
+      const banner = el("android-download-banner");
+      const bannerText = el("android-download-banner-text");
+      bannerText.textContent = `Downloading: ${url}`;
+      banner.hidden = false;
       try {
         await invoke("plugin:musicgrab-ytdl|download", { url });
         await loadLibrary();
       } catch (err) {
         alert(err.message || String(err));
       } finally {
-        el("view-title").textContent = prevText;
+        banner.hidden = true;
       }
       return;
     }
@@ -515,8 +529,17 @@ import { ANIMATIONS, animationManager } from "./bg-animations.js";
   async function loadSettings() {
     // No config server on Android — audio format is fixed (mp3) in the
     // Kotlin plugin for now; General settings are a desktop/web-app-only
-    // panel until that's wired up too.
-    if (IS_ANDROID_APP) return;
+    // panel until that's wired up too. Hide the tab entirely instead of
+    // leaving a form whose "Save" button silently does nothing.
+    if (IS_ANDROID_APP) {
+      const generalTab = document.querySelector('.settings-tab[data-tab="general"]');
+      if (generalTab) generalTab.hidden = true;
+      const appearanceTab = document.querySelector('.settings-tab[data-tab="appearance"]');
+      if (appearanceTab) appearanceTab.classList.add("active");
+      el("settings-panel-general").hidden = true;
+      el("settings-panel-appearance").hidden = false;
+      return;
+    }
     const cfg = await api("/api/config");
     el("s-format").value = cfg.audio_format;
     el("s-quality").value = cfg.audio_quality;
@@ -668,7 +691,10 @@ import { ANIMATIONS, animationManager } from "./bg-animations.js";
       // asset protocol is what's allowed to serve arbitrary local files
       // into the webview, not a plain file:// URL.
       audio.src = window.__TAURI__.core.convertFileSrc(track.id);
-      el("player-art").src = "";
+      // Cover art is read straight from the file's own embedded tags
+      // (see the Kotlin plugin's extractArtwork) as a data URI — there's
+      // no HTTP artwork endpoint on Android, unlike desktop.
+      el("player-art").src = track.thumbnail || "";
     } else {
       audio.src = `/api/stream/${track.id}`;
       el("player-art").src = `/api/artwork/${track.id}`;
@@ -690,13 +716,26 @@ import { ANIMATIONS, animationManager } from "./bg-animations.js";
     state.nowPlayingOpen = true;
     el("now-playing").hidden = false;
     if (state.nowPlayingLyricsOpen) renderLyrics();
+    // Push a history entry so Android's hardware/gesture back button has
+    // something to pop instead of falling through to the system default
+    // (backgrounding or exiting the whole app) — the webview otherwise
+    // has zero navigation history in this single-page app.
+    history.pushState({ modal: "now-playing" }, "");
   }
-  function closeNowPlaying() {
+  function closeNowPlaying(fromPopstate) {
     state.nowPlayingOpen = false;
     el("now-playing").hidden = true;
+    // Only consume the history entry when the user closed via the X
+    // button — a popstate-triggered close means it's already gone.
+    if (!fromPopstate && history.state && history.state.modal === "now-playing") {
+      history.back();
+    }
   }
   el("player-art-wrap").addEventListener("click", openNowPlaying);
-  el("now-playing-close").addEventListener("click", closeNowPlaying);
+  el("now-playing-close").addEventListener("click", () => closeNowPlaying(false));
+  window.addEventListener("popstate", () => {
+    if (state.nowPlayingOpen) closeNowPlaying(true);
+  });
 
   el("now-playing-play").addEventListener("click", () => el("play-btn").click());
   el("now-playing-prev").addEventListener("click", () => el("prev-btn").click());

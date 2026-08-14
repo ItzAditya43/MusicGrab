@@ -1,6 +1,8 @@
 package com.musicgrab.ytdl
 
 import android.app.Activity
+import android.media.MediaMetadataRetriever
+import android.util.Base64
 import android.util.Log
 import android.webkit.WebView
 import app.tauri.annotation.Command
@@ -59,6 +61,24 @@ class MusicgrabYtdlPlugin(private val activity: Activity) : Plugin(activity) {
         val dir = File(activity.getExternalFilesDir(null), "MusicGrab")
         dir.mkdirs()
         return dir
+    }
+
+    // Downloads run with --embed-thumbnail, so cover art already lives
+    // inside each file's own tags — no need for a separate metadata
+    // store on top. Read it back as a data URI the webview can use
+    // directly as an <img src>, same as the desktop app's artwork API.
+    private fun extractArtwork(file: File): String? {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(file.absolutePath)
+            val art = retriever.embeddedPicture ?: return null
+            val b64 = Base64.encodeToString(art, Base64.NO_WRAP)
+            "data:image/jpeg;base64,$b64"
+        } catch (e: Exception) {
+            null
+        } finally {
+            retriever.release()
+        }
     }
 
     @Command
@@ -129,9 +149,11 @@ class MusicgrabYtdlPlugin(private val activity: Activity) : Plugin(activity) {
                 YoutubeDL.getInstance().execute(request, null) { _, _, _ -> }
 
                 val expected = outDir.listFiles { f -> f.nameWithoutExtension == nameTemplate }
+                val file = expected?.firstOrNull()
                 val ret = JSObject()
                 ret.put("success", true)
-                ret.put("path", expected?.firstOrNull()?.absolutePath)
+                ret.put("path", file?.absolutePath)
+                ret.put("thumbnail", file?.let { extractArtwork(it) })
                 invoke.resolve(ret)
             } catch (e: Exception) {
                 invoke.reject(e.message ?: "download failed")
@@ -152,6 +174,7 @@ class MusicgrabYtdlPlugin(private val activity: Activity) : Plugin(activity) {
                 obj.put("name", f.nameWithoutExtension)
                 obj.put("path", f.absolutePath)
                 obj.put("size", f.length())
+                obj.put("thumbnail", extractArtwork(f))
                 arr.put(obj)
             }
 
