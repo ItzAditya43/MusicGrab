@@ -84,6 +84,27 @@ def _run_download_job(job_id: str, url: str) -> None:
         _update_job(job_id, status="failed", message=str(exc))
 
 
+def _save_lyrics_sidecar(track, file_path: Path) -> None:
+    """Best-effort: fetch lyrics and save them next to the downloaded audio
+    file (same base name, .lrc/.txt extension) so any player that reads
+    sidecar lyric files picks them up automatically, without the user
+    having to open each track and click "Save .lrc" one at a time.
+
+    Never raises — a lyrics lookup failing must not fail the download
+    itself, especially mid-playlist where one bad lookup shouldn't stop
+    the rest of the batch.
+    """
+    try:
+        result = _fetch_lyrics(track, _track_id(track))
+        if not result["found"]:
+            return
+        sidecar = file_path.with_suffix(".lrc" if result["synced_raw"] else ".txt")
+        content = result["synced_raw"] or result["plain"]
+        sidecar.write_text(content, encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _run_youtube_job(job_id: str, url: str, output_dir: Path) -> None:
     if not ensure_yt_dlp() or not ensure_ffmpeg():
         _update_job(job_id, status="failed", message="yt-dlp or ffmpeg not installed on the server")
@@ -115,6 +136,8 @@ def _run_youtube_job(job_id: str, url: str, output_dir: Path) -> None:
             metadata_embedder.embed(track, file_path)
         if file_path and config.save_artwork:
             artwork_saver.save_artwork(track, dest_dir / "artwork")
+        if file_path:
+            _save_lyrics_sidecar(track, file_path)
 
         if file_path:
             library_manager.add_track(track)
@@ -175,6 +198,8 @@ def _run_spotify_job(job_id: str, url: str, output_dir: Path) -> None:
             metadata_embedder.embed(yt_track, file_path)
         if file_path and config.save_artwork:
             artwork_saver.save_artwork(yt_track, dest_dir / "artwork")
+        if file_path:
+            _save_lyrics_sidecar(yt_track, file_path)
 
         if file_path:
             library_manager.add_track(yt_track)
