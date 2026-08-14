@@ -14,8 +14,6 @@ import sys
 import threading
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import TimeoutError as FutureTimeoutError
 from pathlib import Path
 from typing import Optional
 
@@ -140,21 +138,45 @@ def _save_lyrics_sidecar(track, file_path: Path) -> None:
 _TRACK_TIMEOUT = 300
 
 
+class _TrackTimeout(Exception):
+    pass
+
+
 def _run_with_timeout(fn, *args, timeout: int = _TRACK_TIMEOUT):
     """Run fn(*args), aborting the wait after `timeout` seconds.
 
+    Plain threading.Thread + Event, deliberately not ThreadPoolExecutor:
+    creating hundreds of short-lived executors over a long-running server
+    process was empirically reproduced (in an isolated PyInstaller-frozen
+    repro) to interact badly with concurrent.futures' global shutdown
+    bookkeeping and stop reliably firing future.result()'s timeout after
+    enough iterations — exactly matching a real 775-track playlist
+    hanging at unpredictable points despite this same timeout logic
+    "working" in short-lived test scripts. A raw Thread + Event has no
+    such shared global state per-instance.
+
     Python threads can't be forcibly killed, so a timed-out call keeps
-    running in its own thread in the background rather than actually
-    stopping — accepted here because the alternative (the whole job loop
-    blocked on it forever) is worse, and a leaked thread is self-contained
-    and never blocks progress on the rest of the batch.
+    running in the background rather than actually stopping — accepted
+    since the alternative (the whole job loop blocked forever) is worse,
+    and a leaked thread is self-contained and never blocks the batch.
     """
-    executor = ThreadPoolExecutor(max_workers=1)
-    try:
-        future = executor.submit(fn, *args)
-        return future.result(timeout=timeout)
-    finally:
-        executor.shutdown(wait=False)
+    result_box: dict = {}
+    done = threading.Event()
+
+    def _target():
+        try:
+            result_box["value"] = fn(*args)
+        except Exception as exc:  # noqa: BLE001
+            result_box["error"] = exc
+        finally:
+            done.set()
+
+    threading.Thread(target=_target, daemon=True).start()
+    if not done.wait(timeout=timeout):
+        raise _TrackTimeout(f"timed out after {timeout}s")
+    if "error" in result_box:
+        raise result_box["error"]
+    return result_box["value"]
 
 
 def _process_youtube_track(track, dest_dir: Path) -> Optional[Path]:
@@ -199,7 +221,7 @@ def _run_youtube_job(job_id: str, url: str, output_dir: Path) -> None:
         _set_track_status(job_id, idx, "active")
         try:
             file_path = _run_with_timeout(_process_youtube_track, track, dest_dir)
-        except FutureTimeoutError:
+        except _TrackTimeout:
             file_path = None
             _set_track_status(job_id, idx, "failed")
             _update_job(job_id, done=i, message=f"Timed out, skipping: {track.display_title}")
@@ -279,7 +301,7 @@ def _run_spotify_job(job_id: str, url: str, output_dir: Path) -> None:
         _set_track_status(job_id, idx, "active")
         try:
             file_path, yt_track = _run_with_timeout(_process_spotify_track, track, dest_dir)
-        except FutureTimeoutError:
+        except _TrackTimeout:
             file_path = None
             _set_track_status(job_id, idx, "failed")
             _update_job(job_id, done=i, message=f"Timed out, skipping: {track.display_title}")
