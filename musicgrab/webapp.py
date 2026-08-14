@@ -70,6 +70,27 @@ def _update_job(job_id: str, **fields) -> None:
             _jobs[job_id].update(fields)
 
 
+def _init_track_status(job_id: str, tracks) -> None:
+    """Seed the job's per-track list, all "queued", as soon as the full
+    track list is known — before any downloading starts — so the UI can
+    immediately show the whole batch instead of only what's finished.
+    """
+    _update_job(
+        job_id,
+        track_status=[
+            {"title": t.title, "artist": t.artist, "status": "queued"} for t in tracks
+        ],
+    )
+
+
+def _set_track_status(job_id: str, index: int, status: str) -> None:
+    """status: 'queued' | 'active' | 'done' | 'skipped' | 'failed'"""
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if job and 0 <= index < len(job.get("track_status", [])):
+            job["track_status"][index]["status"] = status
+
+
 def _run_download_job(job_id: str, url: str) -> None:
     try:
         _update_job(job_id, status="running", message="Resolving URL...")
@@ -164,6 +185,7 @@ def _run_youtube_job(job_id: str, url: str, output_dir: Path) -> None:
 
     total = len(tracks)
     _update_job(job_id, total=total, done=0, message=f"Downloading {total} track(s)...")
+    _init_track_status(job_id, tracks)
 
     dest_dir = output_dir
     if is_playlist:
@@ -172,18 +194,25 @@ def _run_youtube_job(job_id: str, url: str, output_dir: Path) -> None:
         dest_dir = output_dir / sanitize_path_component(playlist.title)
 
     completed_tracks = []
-    for i, track in enumerate(tracks, 1):
+    for idx, track in enumerate(tracks):
+        i = idx + 1
+        _set_track_status(job_id, idx, "active")
         try:
             file_path = _run_with_timeout(_process_youtube_track, track, dest_dir)
         except FutureTimeoutError:
             file_path = None
+            _set_track_status(job_id, idx, "failed")
             _update_job(job_id, done=i, message=f"Timed out, skipping: {track.display_title}")
         except Exception:  # noqa: BLE001
             file_path = None
+            _set_track_status(job_id, idx, "failed")
             _update_job(job_id, done=i, message=f"Failed, skipping: {track.display_title}")
         else:
             if file_path:
                 completed_tracks.append(track)
+                _set_track_status(job_id, idx, "done")
+            else:
+                _set_track_status(job_id, idx, "failed")
             _update_job(job_id, done=i, message=f"Downloaded {i}/{total}: {track.display_title}")
 
     _update_job(
@@ -238,26 +267,33 @@ def _run_spotify_job(job_id: str, url: str, output_dir: Path) -> None:
 
     total = len(source_tracks)
     _update_job(job_id, total=total, done=0, message=f"Matching {total} track(s) on YouTube...")
+    _init_track_status(job_id, source_tracks)
 
     if not (ensure_yt_dlp() and ensure_ffmpeg()):
         _update_job(job_id, status="failed", message="yt-dlp or ffmpeg not installed on the server")
         return
 
     completed_tracks = []
-    for i, track in enumerate(source_tracks, 1):
+    for idx, track in enumerate(source_tracks):
+        i = idx + 1
+        _set_track_status(job_id, idx, "active")
         try:
             file_path, yt_track = _run_with_timeout(_process_spotify_track, track, dest_dir)
         except FutureTimeoutError:
             file_path = None
+            _set_track_status(job_id, idx, "failed")
             _update_job(job_id, done=i, message=f"Timed out, skipping: {track.display_title}")
         except Exception:  # noqa: BLE001
             file_path = None
+            _set_track_status(job_id, idx, "failed")
             _update_job(job_id, done=i, message=f"Failed, skipping: {track.display_title}")
         else:
             if not file_path:
+                _set_track_status(job_id, idx, "skipped")
                 _update_job(job_id, done=i, message=f"Not found: {track.display_title}")
                 continue
             completed_tracks.append(yt_track)
+            _set_track_status(job_id, idx, "done")
             _update_job(job_id, done=i, message=f"Downloaded {i}/{total}: {track.display_title}")
 
     _update_job(
@@ -291,6 +327,10 @@ def start_download(req: DownloadRequest):
             "total": 0,
             "created_at": time.time(),
             "tracks": [],
+            # Live per-track breakdown so the UI can show what's done, what's
+            # currently in progress, and what's still queued — not just a
+            # single rolling message string for the whole job.
+            "track_status": [],
         }
 
     thread = threading.Thread(target=_run_download_job, args=(job_id, url), daemon=True)

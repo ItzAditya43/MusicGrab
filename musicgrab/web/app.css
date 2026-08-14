@@ -502,6 +502,49 @@ html.has-bg-animation .lyrics-panel {
   transition: width 0.3s ease;
 }
 
+.job-summary { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; font-size: 11px; font-family: var(--font-mono); }
+.job-count { padding: 2px 8px; border-radius: 8px; background: var(--surface-2); color: var(--text-muted); }
+.job-count.done { color: var(--success); }
+.job-count.active { color: var(--accent-2); }
+.job-count.failed { color: var(--danger); }
+.job-count.skipped { color: var(--warn); }
+
+.job-tracks {
+  margin-top: 10px;
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.job-track-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--text-muted);
+}
+.job-track-row:last-child { border-bottom: none; }
+
+.job-track-icon { flex-shrink: 0; width: 14px; text-align: center; font-size: 11px; }
+.job-track-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.job-track-row.queued { opacity: 0.55; }
+.job-track-row.active { color: var(--text); }
+.job-track-row.active .job-track-icon { color: var(--accent-2); animation: job-track-pulse 1s ease-in-out infinite; }
+.job-track-row.done { color: var(--text); }
+.job-track-row.done .job-track-icon { color: var(--success); }
+.job-track-row.failed .job-track-icon { color: var(--danger); }
+.job-track-row.skipped .job-track-icon { color: var(--warn); }
+
+@keyframes job-track-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.8); }
+}
+
 .job-status {
   display: inline-flex;
   align-items: center;

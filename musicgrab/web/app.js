@@ -280,39 +280,111 @@ import { ANIMATIONS, animationManager } from "./bg-animations.js";
     pollJobs();
   }
 
+  const STATUS_ICON = {
+    queued: "&#9675;",   // hollow circle
+    active: "&#9679;",   // filled circle (pulses via CSS)
+    done: "&#10003;",    // check
+    skipped: "&#8722;",  // minus
+    failed: "&#10005;",  // x
+  };
+
+  // Job track lists are rebuilt fully on first render, then patched
+  // in-place on every subsequent poll (just swapping each row's status
+  // class/icon) instead of re-rendering — a 700+ track list rebuilt from
+  // scratch every 1.5s poll would be wasteful and cause visible flicker.
+  const jobTrackRows = new Map(); // jobId -> HTMLElement[]
+
   function renderJobs() {
     const container = el("job-list");
-    container.innerHTML = "";
     if (!state.jobs.length) {
       container.innerHTML = '<p class="muted">No downloads yet. Paste a link on the left to get started.</p>';
+      jobTrackRows.clear();
       return;
     }
+
+    const placeholder = container.querySelector(":scope > p.muted");
+    if (placeholder) placeholder.remove();
+
+    const seenJobIds = new Set(state.jobs.map((j) => j.id));
+    for (const jobId of jobTrackRows.keys()) {
+      if (!seenJobIds.has(jobId)) jobTrackRows.delete(jobId);
+    }
+
     state.jobs.forEach((job) => {
-      const card = document.createElement("div");
-      card.className = "job-card";
+      let card = container.querySelector(`[data-job-id="${job.id}"]`);
+      const isNew = !card;
+      if (isNew) {
+        card = document.createElement("div");
+        card.className = "job-card";
+        card.dataset.jobId = job.id;
+        container.appendChild(card);
+      }
 
-      const url = document.createElement("div");
-      url.className = "job-url";
-      url.textContent = job.url;
-
-      const msg = document.createElement("div");
-      msg.className = "job-message";
-      msg.textContent = job.message || "";
-
-      const bar = document.createElement("div");
-      bar.className = "job-bar";
-      const fill = document.createElement("div");
-      fill.className = "job-bar-fill";
       const pct = job.total ? Math.round((job.done / job.total) * 100) : job.status === "completed" ? 100 : 0;
-      fill.style.width = `${pct}%`;
-      bar.appendChild(fill);
+      const tracks = job.track_status || [];
+      const counts = tracks.reduce(
+        (acc, t) => ((acc[t.status] = (acc[t.status] || 0) + 1), acc),
+        { queued: 0, active: 0, done: 0, skipped: 0, failed: 0 }
+      );
 
-      const status = document.createElement("span");
-      status.className = `job-status ${job.status}`;
-      status.textContent = job.status;
+      if (isNew) {
+        card.innerHTML = `
+          <div class="job-url"></div>
+          <div class="job-message"></div>
+          <div class="job-bar"><div class="job-bar-fill"></div></div>
+          <div class="job-summary"></div>
+          <div class="job-tracks"></div>
+          <span class="job-status"></span>
+        `;
+      }
 
-      card.append(url, msg, bar, status);
-      container.appendChild(card);
+      card.querySelector(".job-url").textContent = job.url;
+      card.querySelector(".job-message").textContent = job.message || "";
+      card.querySelector(".job-bar-fill").style.width = `${pct}%`;
+      const statusEl = card.querySelector(".job-status");
+      statusEl.className = `job-status ${job.status}`;
+      statusEl.textContent = job.status;
+
+      card.querySelector(".job-summary").innerHTML = tracks.length
+        ? `<span class="job-count done">${counts.done} done</span>` +
+          (counts.active ? `<span class="job-count active">${counts.active} active</span>` : "") +
+          (counts.failed ? `<span class="job-count failed">${counts.failed} failed</span>` : "") +
+          (counts.skipped ? `<span class="job-count skipped">${counts.skipped} skipped</span>` : "") +
+          `<span class="job-count queued">${counts.queued} queued</span>`
+        : "";
+
+      const tracksEl = card.querySelector(".job-tracks");
+      let rows = jobTrackRows.get(job.id);
+      if (!rows || rows.length !== tracks.length) {
+        // Track count only changes at job start (once total is known), so
+        // this full (re)build only happens once per job in practice.
+        tracksEl.innerHTML = "";
+        rows = tracks.map((t) => {
+          const row = document.createElement("div");
+          row.className = `job-track-row ${t.status}`;
+          row.innerHTML = `<span class="job-track-icon"></span><span class="job-track-label"></span>`;
+          tracksEl.appendChild(row);
+          return row;
+        });
+        jobTrackRows.set(job.id, rows);
+      }
+      tracks.forEach((t, i) => {
+        const row = rows[i];
+        if (!row.dataset.status || row.dataset.status !== t.status) {
+          row.className = `job-track-row ${t.status}`;
+          row.dataset.status = t.status;
+          row.querySelector(".job-track-icon").innerHTML = STATUS_ICON[t.status] || "";
+        }
+        const label = `${t.artist ? t.artist + " - " : ""}${t.title}`;
+        const labelEl = row.querySelector(".job-track-label");
+        if (labelEl.textContent !== label) labelEl.textContent = label;
+      });
+    });
+
+    // Remove cards for jobs no longer in state.jobs (rare — jobs persist
+    // for the process lifetime — but keeps things correct if that changes).
+    container.querySelectorAll("[data-job-id]").forEach((card) => {
+      if (!seenJobIds.has(card.dataset.jobId)) card.remove();
     });
   }
 
