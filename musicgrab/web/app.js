@@ -55,6 +55,7 @@ import { ANIMATIONS, animationManager } from "./bg-animations.js";
   const VIEW_TITLES = {
     home: "Home",
     search: "Search",
+    discover: "Discover",
     library: "Your Library",
     downloads: "Downloads",
     settings: "Settings",
@@ -70,6 +71,7 @@ import { ANIMATIONS, animationManager } from "./bg-animations.js";
     });
     if (view === "library") loadLibrary();
     if (view === "downloads") renderJobs();
+    if (view === "discover") loadDiscover();
     if (view === "settings") {
       loadSettings();
       initAppearanceSettings();
@@ -227,6 +229,101 @@ import { ANIMATIONS, animationManager } from "./bg-animations.js";
       });
     } catch (err) {
       el("search-results").innerHTML = `<p class="muted">${err.message || err}</p>`;
+    }
+  });
+
+  // ---------------- Discover ----------------
+
+  async function loadDiscover() {
+    if (IS_ANDROID_APP) {
+      // No local backend on Android to ask for Spotify-backed recommendations.
+      el("discover-recommended").innerHTML = '<p class="muted">Discover isn\'t available in the Android app yet.</p>';
+      el("discover-based-on").textContent = "";
+      el("followed-artists-list").innerHTML = "";
+      return;
+    }
+    el("discover-recommended").innerHTML = '<p class="muted">Loading recommendations…</p>';
+    try {
+      const data = await api("/api/discover/recommended");
+      renderTrackList(el("discover-recommended"), data.tracks, {
+        emptyText: "Download a few tracks first, then recommendations will show up here.",
+        showDownload: true,
+      });
+      el("discover-based-on").textContent = data.based_on.length
+        ? `Based on: ${data.based_on.join(", ")}`
+        : "";
+    } catch (err) {
+      el("discover-recommended").innerHTML = `<p class="muted">${err.message || err}</p>`;
+    }
+    loadFollowedArtists();
+  }
+
+  async function loadFollowedArtists() {
+    const container = el("followed-artists-list");
+    container.innerHTML = '<p class="muted">Loading…</p>';
+    try {
+      const data = await api("/api/artists/followed");
+      renderFollowedArtists(container, data.artists);
+    } catch (err) {
+      container.innerHTML = `<p class="muted">${err.message || err}</p>`;
+    }
+  }
+
+  function renderFollowedArtists(container, artists) {
+    container.innerHTML = "";
+    if (!artists.length) {
+      container.innerHTML = '<p class="muted">Not following anyone yet — search an artist name above.</p>';
+      return;
+    }
+    artists.forEach((artist) => {
+      const card = document.createElement("div");
+      card.className = "artist-card";
+
+      const art = document.createElement("img");
+      art.className = "artist-card-art";
+      art.src = artist.thumbnail_url || "";
+      art.alt = "";
+
+      const info = document.createElement("div");
+      info.className = "artist-card-info";
+      const name = document.createElement("div");
+      name.className = "artist-card-name";
+      name.textContent = artist.name;
+      const releases = document.createElement("div");
+      releases.className = "artist-card-releases";
+      releases.textContent = artist.latest_releases.length
+        ? `Latest: ${artist.latest_releases.map((r) => r.title).join(" · ")}`
+        : "No releases found";
+      info.append(name, releases);
+
+      const unfollowBtn = document.createElement("button");
+      unfollowBtn.className = "btn-secondary artist-card-unfollow";
+      unfollowBtn.textContent = "Unfollow";
+      unfollowBtn.addEventListener("click", async () => {
+        await api(`/api/artists/${artist.id}/follow`, { method: "DELETE" });
+        loadFollowedArtists();
+      });
+
+      card.append(art, info, unfollowBtn);
+      container.appendChild(card);
+    });
+  }
+
+  el("follow-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const input = el("follow-input");
+    const query = input.value.trim();
+    if (!query) return;
+    input.value = "";
+    try {
+      await api("/api/artists/follow", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query }),
+      });
+      loadFollowedArtists();
+    } catch (err) {
+      alert(err.message || String(err));
     }
   });
 
@@ -815,6 +912,7 @@ import { ANIMATIONS, animationManager } from "./bg-animations.js";
     // pollJobs() and sw.js registration are web-app/desktop concerns.
     loadLibrary();
     document.querySelector('.nav-link[data-view="downloads"]')?.remove();
+    document.querySelector('.nav-link[data-view="discover"]')?.remove();
   } else {
     loadLibStats();
     pollJobs();

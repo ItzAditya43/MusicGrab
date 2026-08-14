@@ -459,6 +459,119 @@ def track_artwork(track_id: str):
 
 
 # ---------------------------------------------------------------------------
+# Discover: recommendations + followed artists (Spotify-backed, no auth)
+# ---------------------------------------------------------------------------
+
+_FOLLOWED_ARTISTS_FILE = "followed_artists.json"
+
+
+def _followed_artists_path() -> Path:
+    return config.library_dir / _FOLLOWED_ARTISTS_FILE
+
+
+def _load_followed_artists() -> list[dict]:
+    path = _followed_artists_path()
+    if not path.exists():
+        return []
+    try:
+        import json
+
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+
+
+def _save_followed_artists(artists: list[dict]) -> None:
+    import json
+
+    config.library_dir.mkdir(parents=True, exist_ok=True)
+    _followed_artists_path().write_text(json.dumps(artists, indent=2), encoding="utf-8")
+
+
+@app.get("/api/discover/recommended")
+def discover_recommended(limit: int = 20):
+    """Tracks similar to what's already in the library, via Spotify's
+    "related artists" for a handful of artists you've actually downloaded.
+    """
+    library_tracks = library_manager.list_tracks()
+    seed_artists = []
+    seen = set()
+    for t in library_tracks:
+        name = (t.artist or "").split(",")[0].strip()
+        if name and name.lower() not in seen:
+            seen.add(name.lower())
+            seed_artists.append(name)
+        if len(seed_artists) >= 3:
+            break
+
+    if not seed_artists:
+        return {"tracks": [], "based_on": []}
+
+    library_titles = {(t.artist or "", t.title or "") for t in library_tracks}
+    results = []
+    seen_track_keys = set()
+    for name in seed_artists:
+        artist = spotify_source.search_artist(name)
+        if not artist or not artist["id"]:
+            continue
+        related = spotify_source.get_related_artists(artist["id"], max_results=3)
+        for rel in related:
+            if not rel["id"]:
+                continue
+            for track in spotify_source.get_artist_top_tracks(rel["id"], max_results=3):
+                key = (track.artist, track.title)
+                if key in library_titles or key in seen_track_keys:
+                    continue
+                seen_track_keys.add(key)
+                track.source = "spotify"
+                results.append(_track_to_public(track))
+                if len(results) >= limit:
+                    break
+            if len(results) >= limit:
+                break
+        if len(results) >= limit:
+            break
+
+    return {"tracks": results, "based_on": seed_artists}
+
+
+@app.get("/api/artists/followed")
+def list_followed_artists():
+    followed = _load_followed_artists()
+    for artist in followed:
+        artist["latest_releases"] = spotify_source.get_latest_releases(artist["id"], max_results=3)
+    return {"artists": followed}
+
+
+class FollowArtistRequest(BaseModel):
+    query: str
+
+
+@app.post("/api/artists/follow")
+def follow_artist(req: FollowArtistRequest):
+    query = req.query.strip()
+    if not query:
+        raise HTTPException(400, "query is required")
+
+    artist = spotify_source.get_artist(query)
+    if not artist or not artist["id"]:
+        raise HTTPException(404, "Artist not found")
+
+    followed = _load_followed_artists()
+    if not any(a["id"] == artist["id"] for a in followed):
+        followed.append(artist)
+        _save_followed_artists(followed)
+    return artist
+
+
+@app.delete("/api/artists/{artist_id}/follow")
+def unfollow_artist(artist_id: str):
+    followed = [a for a in _load_followed_artists() if a["id"] != artist_id]
+    _save_followed_artists(followed)
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
 # Lyrics (via lrclib.net — free, keyless, provides synced + plain lyrics)
 # ---------------------------------------------------------------------------
 

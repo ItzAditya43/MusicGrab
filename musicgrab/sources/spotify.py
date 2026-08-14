@@ -153,3 +153,68 @@ class SpotifySource:
             return []
 
         return [self._scraper_track_to_track(t) for t in (results.tracks or [])]
+
+    def _artist_to_dict(self, artist) -> dict:
+        return {
+            "id": artist.id or "",
+            "name": artist.name or "Unknown",
+            "thumbnail_url": _images_to_thumbnail(artist.images),
+            "url": artist.url or f"https://open.spotify.com/artist/{artist.id}",
+        }
+
+    def search_artist(self, query: str) -> Optional[dict]:
+        """Search for an artist by name and return the best match (or None)."""
+        try:
+            results = self._get_client().search(query, types=("artist",), limit=1)
+        except SpotifyScraperError:
+            return None
+        artists = results.artists or []
+        return self._artist_to_dict(artists[0]) if artists else None
+
+    def get_artist(self, url_or_id: str) -> Optional[dict]:
+        """Resolve an artist URL/ID/name into {id, name, thumbnail_url, url}."""
+        value = url_or_id if "open.spotify.com" in url_or_id else None
+        try:
+            if value:
+                artist = self._get_client().get_artist(value)
+            else:
+                return self.search_artist(url_or_id)
+        except SpotifyScraperError:
+            return None
+        return self._artist_to_dict(artist)
+
+    def get_artist_top_tracks(self, artist_id: str, max_results: int = 10) -> List[Track]:
+        """Top tracks for an artist, given their Spotify artist id."""
+        try:
+            artist = self._get_client().get_artist(f"https://open.spotify.com/artist/{artist_id}")
+        except SpotifyScraperError:
+            return []
+        return [self._scraper_track_to_track(t) for t in (artist.top_tracks or [])][:max_results]
+
+    def get_related_artists(self, artist_id: str, max_results: int = 10) -> List[dict]:
+        """Artists related to the given Spotify artist id."""
+        try:
+            related = self._get_client().get_related_artists(
+                f"https://open.spotify.com/artist/{artist_id}"
+            )
+        except SpotifyScraperError:
+            return []
+        return [self._artist_to_dict(a) for a in related[:max_results]]
+
+    def get_latest_releases(self, artist_id: str, max_results: int = 5) -> List[dict]:
+        """An artist's most recent releases (album/single name + artwork)."""
+        try:
+            releases = self._get_client().get_discography(
+                f"https://open.spotify.com/artist/{artist_id}", max_releases=max_results
+            )
+        except SpotifyScraperError:
+            return []
+        return [
+            {
+                "id": r.id or "",
+                "title": r.name or "Unknown",
+                "thumbnail_url": _images_to_thumbnail(r.images),
+                "url": f"https://open.spotify.com/album/{r.id}",
+            }
+            for r in releases
+        ]

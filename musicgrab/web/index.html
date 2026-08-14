@@ -66,6 +66,13 @@
           </svg>
           Search
         </button>
+        <button class="nav-link" data-view="discover">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8"/>
+            <path d="m15 9-2 5-5 2 2-5 5-2Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+          </svg>
+          Discover
+        </button>
         <button class="nav-link" data-view="library">
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
             <rect x="4" y="4" width="6" height="16" rx="1.2" stroke="currentColor" stroke-width="1.8"/>
@@ -129,6 +136,25 @@
           <button type="submit">Search</button>
         </form>
         <div class="track-list" id="search-results"></div>
+      </section>
+
+      <section class="view" id="view-discover" hidden>
+        <div class="discover-section">
+          <div class="discover-section-header">
+            <h3>Recommended for you</h3>
+            <p class="muted" id="discover-based-on"></p>
+          </div>
+          <div class="track-list" id="discover-recommended"></div>
+        </div>
+
+        <div class="discover-section">
+          <h3>Followed Artists</h3>
+          <form class="follow-form" id="follow-form">
+            <input id="follow-input" type="text" placeholder="Artist name or Spotify artist link" autocomplete="off" />
+            <button type="submit">Follow</button>
+          </form>
+          <div id="followed-artists-list"></div>
+        </div>
       </section>
 
       <section class="view" id="view-library" hidden>
