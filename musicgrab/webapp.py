@@ -14,6 +14,8 @@ import sys
 import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from pathlib import Path
 from typing import Optional
 
@@ -105,6 +107,49 @@ def _save_lyrics_sidecar(track, file_path: Path) -> None:
         pass
 
 
+# A hard wall-clock ceiling per track, enforced at the loop level rather
+# than inside individual network calls. `requests`' own timeout= only
+# bounds the gap *between* reads, not a request's total duration — a
+# slowly-trickling response (or any other call whose own timeout doesn't
+# actually cover every way it can stall) can still block for a very long
+# time despite every individual call looking "protected". A 775-track
+# playlist download once hung on track 16 for 20+ minutes and never
+# recovered even with per-call timeouts in place; this is the backstop
+# that guarantees no single track can ever stall the rest of the batch.
+_TRACK_TIMEOUT = 300
+
+
+def _run_with_timeout(fn, *args, timeout: int = _TRACK_TIMEOUT):
+    """Run fn(*args), aborting the wait after `timeout` seconds.
+
+    Python threads can't be forcibly killed, so a timed-out call keeps
+    running in its own thread in the background rather than actually
+    stopping — accepted here because the alternative (the whole job loop
+    blocked on it forever) is worse, and a leaked thread is self-contained
+    and never blocks progress on the rest of the batch.
+    """
+    executor = ThreadPoolExecutor(max_workers=1)
+    try:
+        future = executor.submit(fn, *args)
+        return future.result(timeout=timeout)
+    finally:
+        executor.shutdown(wait=False)
+
+
+def _process_youtube_track(track, dest_dir: Path) -> Optional[Path]:
+    if track.thumbnail_url:
+        artwork_saver.load_artwork_into_track(track)
+    file_path = youtube_source.download_track(track, dest_dir)
+    if file_path and config.embed_metadata:
+        metadata_embedder.embed(track, file_path)
+    if file_path and config.save_artwork:
+        artwork_saver.save_artwork(track, dest_dir / "artwork")
+    if file_path:
+        _save_lyrics_sidecar(track, file_path)
+        library_manager.add_track(track)
+    return file_path
+
+
 def _run_youtube_job(job_id: str, url: str, output_dir: Path) -> None:
     if not ensure_yt_dlp() or not ensure_ffmpeg():
         _update_job(job_id, status="failed", message="yt-dlp or ffmpeg not installed on the server")
@@ -120,30 +165,26 @@ def _run_youtube_job(job_id: str, url: str, output_dir: Path) -> None:
     total = len(tracks)
     _update_job(job_id, total=total, done=0, message=f"Downloading {total} track(s)...")
 
+    dest_dir = output_dir
+    if is_playlist:
+        from musicgrab.utils import sanitize_path_component
+
+        dest_dir = output_dir / sanitize_path_component(playlist.title)
+
     completed_tracks = []
     for i, track in enumerate(tracks, 1):
-        if track.thumbnail_url:
-            artwork_saver.load_artwork_into_track(track)
-
-        dest_dir = output_dir
-        if is_playlist:
-            from musicgrab.utils import sanitize_path_component
-
-            dest_dir = output_dir / sanitize_path_component(playlist.title)
-
-        file_path = youtube_source.download_track(track, dest_dir)
-        if file_path and config.embed_metadata:
-            metadata_embedder.embed(track, file_path)
-        if file_path and config.save_artwork:
-            artwork_saver.save_artwork(track, dest_dir / "artwork")
-        if file_path:
-            _save_lyrics_sidecar(track, file_path)
-
-        if file_path:
-            library_manager.add_track(track)
-            completed_tracks.append(track)
-
-        _update_job(job_id, done=i, message=f"Downloaded {i}/{total}: {track.display_title}")
+        try:
+            file_path = _run_with_timeout(_process_youtube_track, track, dest_dir)
+        except FutureTimeoutError:
+            file_path = None
+            _update_job(job_id, done=i, message=f"Timed out, skipping: {track.display_title}")
+        except Exception:  # noqa: BLE001
+            file_path = None
+            _update_job(job_id, done=i, message=f"Failed, skipping: {track.display_title}")
+        else:
+            if file_path:
+                completed_tracks.append(track)
+            _update_job(job_id, done=i, message=f"Downloaded {i}/{total}: {track.display_title}")
 
     _update_job(
         job_id,
@@ -151,6 +192,31 @@ def _run_youtube_job(job_id: str, url: str, output_dir: Path) -> None:
         message=f"Downloaded {len(completed_tracks)}/{total} track(s)",
         tracks=[_track_to_public(t) for t in completed_tracks],
     )
+
+
+def _process_spotify_track(track, dest_dir: Path):
+    if track.thumbnail_url:
+        artwork_saver.load_artwork_into_track(track)
+
+    search_query = f"{track.artist} {track.title}"
+    results = youtube_source.search(search_query, max_results=1)
+    if not results:
+        return None, None
+
+    yt_track = results[0]
+    for field in ("title", "artist", "album", "duration", "track_number",
+                  "disc_number", "year", "genre", "thumbnail_url", "thumbnail_data"):
+        setattr(yt_track, field, getattr(track, field))
+
+    file_path = youtube_source.download_track(yt_track, dest_dir)
+    if file_path and config.embed_metadata:
+        metadata_embedder.embed(yt_track, file_path)
+    if file_path and config.save_artwork:
+        artwork_saver.save_artwork(yt_track, dest_dir / "artwork")
+    if file_path:
+        _save_lyrics_sidecar(yt_track, file_path)
+        library_manager.add_track(yt_track)
+    return file_path, yt_track
 
 
 def _run_spotify_job(job_id: str, url: str, output_dir: Path) -> None:
@@ -179,33 +245,20 @@ def _run_spotify_job(job_id: str, url: str, output_dir: Path) -> None:
 
     completed_tracks = []
     for i, track in enumerate(source_tracks, 1):
-        if track.thumbnail_url:
-            artwork_saver.load_artwork_into_track(track)
-
-        search_query = f"{track.artist} {track.title}"
-        results = youtube_source.search(search_query, max_results=1)
-        if not results:
-            _update_job(job_id, done=i, message=f"Not found: {track.display_title}")
-            continue
-
-        yt_track = results[0]
-        for field in ("title", "artist", "album", "duration", "track_number",
-                      "disc_number", "year", "genre", "thumbnail_url", "thumbnail_data"):
-            setattr(yt_track, field, getattr(track, field))
-
-        file_path = youtube_source.download_track(yt_track, dest_dir)
-        if file_path and config.embed_metadata:
-            metadata_embedder.embed(yt_track, file_path)
-        if file_path and config.save_artwork:
-            artwork_saver.save_artwork(yt_track, dest_dir / "artwork")
-        if file_path:
-            _save_lyrics_sidecar(yt_track, file_path)
-
-        if file_path:
-            library_manager.add_track(yt_track)
+        try:
+            file_path, yt_track = _run_with_timeout(_process_spotify_track, track, dest_dir)
+        except FutureTimeoutError:
+            file_path = None
+            _update_job(job_id, done=i, message=f"Timed out, skipping: {track.display_title}")
+        except Exception:  # noqa: BLE001
+            file_path = None
+            _update_job(job_id, done=i, message=f"Failed, skipping: {track.display_title}")
+        else:
+            if not file_path:
+                _update_job(job_id, done=i, message=f"Not found: {track.display_title}")
+                continue
             completed_tracks.append(yt_track)
-
-        _update_job(job_id, done=i, message=f"Downloaded {i}/{total}: {track.display_title}")
+            _update_job(job_id, done=i, message=f"Downloaded {i}/{total}: {track.display_title}")
 
     _update_job(
         job_id,

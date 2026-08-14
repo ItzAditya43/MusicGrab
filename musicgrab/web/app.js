@@ -536,6 +536,7 @@ import { ANIMATIONS, animationManager } from "./bg-animations.js";
   el("now-playing-seek").addEventListener("input", () => {
     if (!audio.duration) return;
     audio.currentTime = (el("now-playing-seek").value / 100) * audio.duration;
+    setSeekFill("now-playing-seek", el("now-playing-seek").value);
   });
 
   el("now-playing-lyrics-toggle").addEventListener("click", () => {
@@ -701,13 +702,19 @@ import { ANIMATIONS, animationManager } from "./bg-animations.js";
 
   audio.addEventListener("ended", () => el("next-btn").click());
 
+  function setSeekFill(elId, pct) {
+    el(elId).style.setProperty("--progress", `${pct}%`);
+  }
+
   audio.addEventListener("timeupdate", () => {
     if (!audio.duration) return;
     const pct = (audio.currentTime / audio.duration) * 100;
     el("seek").value = pct;
+    setSeekFill("seek", pct);
     el("time-current").textContent = formatDuration(audio.currentTime);
     el("time-total").textContent = formatDuration(audio.duration);
     el("now-playing-seek").value = pct;
+    setSeekFill("now-playing-seek", pct);
     el("now-playing-time-current").textContent = formatDuration(audio.currentTime);
     el("now-playing-time-total").textContent = formatDuration(audio.duration);
     updateLyricsHighlight();
@@ -716,6 +723,7 @@ import { ANIMATIONS, animationManager } from "./bg-animations.js";
   el("seek").addEventListener("input", () => {
     if (!audio.duration) return;
     audio.currentTime = (el("seek").value / 100) * audio.duration;
+    setSeekFill("seek", el("seek").value);
   });
 
   el("volume").addEventListener("input", () => {

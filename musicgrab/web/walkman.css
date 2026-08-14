@@ -60,7 +60,17 @@
 .play-btn:active { transform: scale(0.94) translateY(1px) !important; }
 
 .seek-row { color: var(--accent) !important; }
-.player .seek-row input[type="range"],
+.player .seek-row input[type="range"] {
+  --progress: 0%;
+  background: linear-gradient(
+    to right,
+    var(--accent) 0%,
+    var(--accent) var(--progress),
+    var(--wm-groove) var(--progress),
+    var(--wm-groove) 100%
+  ) !important;
+  border-color: var(--wm-hairline) !important;
+}
 .player .player-volume input[type="range"] {
   background: var(--wm-groove) !important;
   border-color: var(--wm-hairline) !important;
@@ -159,9 +169,16 @@
 }
 .now-playing-seek-row { display: flex; align-items: center; gap: 10px; font-size: 12px; font-family: var(--font-mono, monospace); color: var(--text-muted); }
 .now-playing-seek input[type="range"] {
+  --progress: 0%;
   width: 100%;
   height: 5px;
-  background: var(--wm-groove);
+  background: linear-gradient(
+    to right,
+    var(--accent) 0%,
+    var(--accent) var(--progress),
+    var(--wm-groove) var(--progress),
+    var(--wm-groove) 100%
+  );
   border: 1px solid var(--wm-hairline);
   border-radius: 3px;
 }
