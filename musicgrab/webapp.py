@@ -89,6 +89,35 @@ def _set_track_status(job_id: str, index: int, status: str) -> None:
             job["track_status"][index]["status"] = status
 
 
+def _job_selected_indices(job_id: str):
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        return job.get("selected_indices") if job else None
+
+
+def _wait_while_paused(job_id: str) -> bool:
+    """Blocks while the job is paused. Deleting a job (see the DELETE
+    endpoint) removes it from _jobs outright rather than tracking a
+    separate cancel flag — cheaper to check and correct either way,
+    since a job that no longer exists can't be resumed regardless.
+    Returns True if the job was deleted while waiting (or is already
+    gone), meaning the caller must stop immediately.
+    """
+    while True:
+        with _jobs_lock:
+            job = _jobs.get(job_id)
+            if job is None:
+                return True
+            if not job.get("paused"):
+                return False
+        time.sleep(0.5)
+
+
+def _job_alive(job_id: str) -> bool:
+    with _jobs_lock:
+        return job_id in _jobs
+
+
 def _run_download_job(job_id: str, url: str) -> None:
     try:
         _update_job(job_id, status="running", message="Resolving URL...")
@@ -215,9 +244,16 @@ def _run_youtube_job(job_id: str, url: str, output_dir: Path) -> None:
 
         dest_dir = output_dir / sanitize_path_component(playlist.title)
 
+    selected = _job_selected_indices(job_id)
     completed_tracks = []
     for idx, track in enumerate(tracks):
         i = idx + 1
+        if selected is not None and idx not in selected:
+            _set_track_status(job_id, idx, "skipped")
+            _update_job(job_id, done=i)
+            continue
+        if _wait_while_paused(job_id):
+            return
         _set_track_status(job_id, idx, "active")
         try:
             file_path = _run_with_timeout(_process_youtube_track, track, dest_dir)
@@ -237,6 +273,8 @@ def _run_youtube_job(job_id: str, url: str, output_dir: Path) -> None:
                 _set_track_status(job_id, idx, "failed")
             _update_job(job_id, done=i, message=f"Downloaded {i}/{total}: {track.display_title}")
 
+    if not _job_alive(job_id):
+        return
     _update_job(
         job_id,
         status="completed",
@@ -295,9 +333,16 @@ def _run_spotify_job(job_id: str, url: str, output_dir: Path) -> None:
         _update_job(job_id, status="failed", message="yt-dlp or ffmpeg not installed on the server")
         return
 
+    selected = _job_selected_indices(job_id)
     completed_tracks = []
     for idx, track in enumerate(source_tracks):
         i = idx + 1
+        if selected is not None and idx not in selected:
+            _set_track_status(job_id, idx, "skipped")
+            _update_job(job_id, done=i)
+            continue
+        if _wait_while_paused(job_id):
+            return
         _set_track_status(job_id, idx, "active")
         try:
             file_path, yt_track = _run_with_timeout(_process_spotify_track, track, dest_dir)
@@ -318,6 +363,8 @@ def _run_spotify_job(job_id: str, url: str, output_dir: Path) -> None:
             _set_track_status(job_id, idx, "done")
             _update_job(job_id, done=i, message=f"Downloaded {i}/{total}: {track.display_title}")
 
+    if not _job_alive(job_id):
+        return
     _update_job(
         job_id,
         status="completed",
@@ -328,6 +375,11 @@ def _run_spotify_job(job_id: str, url: str, output_dir: Path) -> None:
 
 class DownloadRequest(BaseModel):
     url: str
+    # None = download every track. When set, tracks whose index isn't in
+    # this list are marked "skipped" instead of processed — lets the UI
+    # offer a pick-which-tracks step for playlists/albums before a bulk
+    # download starts.
+    selected_indices: Optional[list[int]] = None
 
 
 @app.post("/api/downloads")
@@ -353,11 +405,57 @@ def start_download(req: DownloadRequest):
             # currently in progress, and what's still queued — not just a
             # single rolling message string for the whole job.
             "track_status": [],
+            "paused": False,
+            "selected_indices": set(req.selected_indices) if req.selected_indices is not None else None,
         }
 
     thread = threading.Thread(target=_run_download_job, args=(job_id, url), daemon=True)
     thread.start()
     return _jobs[job_id]
+
+
+class PreviewRequest(BaseModel):
+    url: str
+
+
+@app.post("/api/downloads/preview")
+def preview_download(req: PreviewRequest):
+    """List the tracks a URL would expand to, without starting a download —
+    lets the UI show a pick-which-tracks step before a bulk (playlist/album)
+    download kicks off."""
+    url = req.url.strip()
+    if not url:
+        raise HTTPException(400, "url is required")
+
+    if is_youtube_url(url):
+        is_playlist = "playlist" in url or "list=" in url
+        if is_playlist:
+            playlist = youtube_source.parse_playlist(url)
+            tracks, title = playlist.tracks, playlist.title
+        else:
+            tracks = [youtube_source.parse_video(url)]
+            title = tracks[0].title if tracks else url
+    elif is_spotify_url(url):
+        content_type = "playlist" if "playlist" in url else ("album" if "album" in url else "track")
+        if content_type == "playlist":
+            playlist = spotify_source.parse_playlist(url)
+            tracks, title = playlist.tracks, playlist.title
+        elif content_type == "album":
+            album = spotify_source.parse_album(url)
+            tracks, title = album.tracks, f"{album.artist} - {album.title}"
+        else:
+            tracks = [spotify_source.parse_track(url)]
+            title = tracks[0].title if tracks else url
+    else:
+        raise HTTPException(400, "Only YouTube and Spotify URLs are supported")
+
+    return {
+        "title": title,
+        "tracks": [
+            {"index": i, "title": t.title, "artist": t.artist, "duration": t.duration}
+            for i, t in enumerate(tracks)
+        ],
+    }
 
 
 @app.get("/api/downloads")
@@ -373,6 +471,43 @@ def get_job(job_id: str):
     if not job:
         raise HTTPException(404, "Job not found")
     return job
+
+
+@app.post("/api/downloads/{job_id}/pause")
+def pause_job(job_id: str):
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if not job:
+            raise HTTPException(404, "Job not found")
+        if job["status"] not in ("queued", "running"):
+            raise HTTPException(400, "Job isn't running")
+        job["paused"] = True
+    return job
+
+
+@app.post("/api/downloads/{job_id}/resume")
+def resume_job(job_id: str):
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if not job:
+            raise HTTPException(404, "Job not found")
+        job["paused"] = False
+    return job
+
+
+@app.delete("/api/downloads/{job_id}")
+def delete_job(job_id: str):
+    # Removing the job outright (rather than a separate cancel flag) is
+    # also the signal the worker thread's own loop checks to stop — see
+    # _wait_while_paused / _job_alive. A background thread mid-track will
+    # finish that one track (Python threads can't be force-killed, same
+    # tradeoff as the per-track timeout) but stops before starting the
+    # next, and all its further writes silently no-op since the job's gone.
+    with _jobs_lock:
+        existed = _jobs.pop(job_id, None) is not None
+    if not existed:
+        raise HTTPException(404, "Job not found")
+    return {"deleted": True}
 
 
 # ---------------------------------------------------------------------------

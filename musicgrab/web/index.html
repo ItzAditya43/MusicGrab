@@ -376,6 +376,29 @@
         <p class="muted">Play a track to see its lyrics.</p>
       </div>
     </aside>
+
+    <div class="modal-overlay" id="track-select-overlay" hidden>
+      <div class="modal track-select-modal">
+        <div class="modal-header">
+          <h2 id="track-select-title">Select tracks</h2>
+          <button id="track-select-close" class="lyrics-close" title="Close">
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="m6 6 12 12M18 6 6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+            </svg>
+          </button>
+        </div>
+        <div class="track-select-toolbar">
+          <button class="btn-secondary" id="track-select-all">Select all</button>
+          <button class="btn-secondary" id="track-select-none">Select none</button>
+          <span class="track-select-count" id="track-select-count"></span>
+        </div>
+        <div class="track-select-list" id="track-select-list"></div>
+        <div class="track-select-actions">
+          <button class="btn-secondary" id="track-select-cancel">Cancel</button>
+          <button id="track-select-confirm">Download selected</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <audio id="audio"></audio>

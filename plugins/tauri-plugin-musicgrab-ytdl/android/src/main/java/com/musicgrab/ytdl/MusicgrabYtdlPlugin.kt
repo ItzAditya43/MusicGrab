@@ -57,6 +57,25 @@ class MusicgrabYtdlPlugin(private val activity: Activity) : Plugin(activity) {
         }
     }
 
+    // Mirrors the desktop app's retry fix for the same class of bug: a
+    // single yt-dlp/network hiccup used to be reported straight to the
+    // user (as "search failed" or a hard download error) with no retry,
+    // even though most such failures are transient (momentary YouTube
+    // throttling) and a retry succeeds seconds later.
+    private fun <T> retryYtdlp(attempts: Int = 3, block: () -> T): T {
+        var lastError: Exception? = null
+        for (attempt in 0 until attempts) {
+            try {
+                return block()
+            } catch (e: Exception) {
+                lastError = e
+                Log.w("MusicgrabYtdl", "yt-dlp call failed (attempt ${attempt + 1}/$attempts)", e)
+                if (attempt < attempts - 1) Thread.sleep(2000L * (attempt + 1))
+            }
+        }
+        throw lastError!!
+    }
+
     private fun downloadsDir(): File {
         val dir = File(activity.getExternalFilesDir(null), "MusicGrab")
         dir.mkdirs()
@@ -94,7 +113,7 @@ class MusicgrabYtdlPlugin(private val activity: Activity) : Plugin(activity) {
                 request.addOption("--dump-json")
                 request.addOption("--flat-playlist")
                 request.addOption("--no-warnings")
-                val response = YoutubeDL.getInstance().execute(request)
+                val response = retryYtdlp { YoutubeDL.getInstance().execute(request) }
 
                 val results = JSArray()
                 response.out.trim().lines().forEach { line ->
@@ -146,7 +165,7 @@ class MusicgrabYtdlPlugin(private val activity: Activity) : Plugin(activity) {
                 request.addOption("--no-warnings")
                 request.addOption("-o", File(outDir, "$nameTemplate.%(ext)s").absolutePath)
 
-                YoutubeDL.getInstance().execute(request, null) { _, _, _ -> }
+                retryYtdlp { YoutubeDL.getInstance().execute(request, null) { _, _, _ -> } }
 
                 val expected = outDir.listFiles { f -> f.nameWithoutExtension == nameTemplate }
                 val file = expected?.firstOrNull()

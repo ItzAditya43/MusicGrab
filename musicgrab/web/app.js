@@ -378,18 +378,101 @@ import { ANIMATIONS, animationManager } from "./bg-animations.js";
       return;
     }
 
+    // Playlists/albums get a pick-which-tracks step first; a bare single
+    // track just starts immediately, same as before. Preview failures
+    // (unrecognized URL, network hiccup) fall through to the old
+    // straight-to-download behavior instead of blocking the user.
+    try {
+      const preview = await api("/api/downloads/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      if (preview.tracks.length > 1) {
+        openTrackSelectModal(url, preview);
+        return;
+      }
+    } catch {
+      // fall through to a direct download attempt below
+    }
+    await launchDownload(url);
+  }
+
+  async function launchDownload(url, selectedIndices) {
     showView("downloads");
     try {
       await api("/api/downloads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify({ url, selected_indices: selectedIndices ?? null }),
       });
     } catch (err) {
       alert(err.message);
     }
     pollJobs();
   }
+
+  // ---------------- Track selection modal ----------------
+
+  function openTrackSelectModal(url, preview) {
+    el("track-select-title").textContent = preview.title || "Select tracks";
+    const list = el("track-select-list");
+    list.innerHTML = "";
+    preview.tracks.forEach((t) => {
+      const row = document.createElement("label");
+      row.className = "track-select-row";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = true;
+      checkbox.dataset.index = t.index;
+      const info = document.createElement("div");
+      const title = document.createElement("div");
+      title.className = "track-select-row-title";
+      title.textContent = t.title || "Unknown";
+      const artist = document.createElement("div");
+      artist.className = "track-select-row-artist";
+      artist.textContent = t.artist || "";
+      info.append(title, artist);
+      row.append(checkbox, info);
+      checkbox.addEventListener("change", updateTrackSelectCount);
+      list.appendChild(row);
+    });
+    updateTrackSelectCount();
+    el("track-select-overlay").hidden = false;
+
+    const confirmBtn = el("track-select-confirm");
+    const onConfirm = () => {
+      const selected = Array.from(list.querySelectorAll("input:checked")).map((c) => Number(c.dataset.index));
+      closeTrackSelectModal();
+      if (selected.length) launchDownload(url, selected);
+    };
+    confirmBtn.onclick = onConfirm;
+  }
+
+  function updateTrackSelectCount() {
+    const list = el("track-select-list");
+    const total = list.querySelectorAll("input").length;
+    const checked = list.querySelectorAll("input:checked").length;
+    el("track-select-count").textContent = `${checked}/${total} selected`;
+  }
+
+  function closeTrackSelectModal() {
+    el("track-select-overlay").hidden = true;
+  }
+
+  el("track-select-all").addEventListener("click", () => {
+    el("track-select-list").querySelectorAll("input").forEach((c) => (c.checked = true));
+    updateTrackSelectCount();
+  });
+  el("track-select-none").addEventListener("click", () => {
+    el("track-select-list").querySelectorAll("input").forEach((c) => (c.checked = false));
+    updateTrackSelectCount();
+  });
+  el("track-select-cancel").addEventListener("click", closeTrackSelectModal);
+  el("track-select-close").addEventListener("click", closeTrackSelectModal);
+  el("track-select-overlay").addEventListener("click", (e) => {
+    if (e.target === el("track-select-overlay")) closeTrackSelectModal();
+  });
 
   const STATUS_ICON = {
     queued: "&#9675;",   // hollow circle
@@ -446,6 +529,7 @@ import { ANIMATIONS, animationManager } from "./bg-animations.js";
           <div class="job-summary"></div>
           <div class="job-tracks"></div>
           <span class="job-status"></span>
+          <div class="job-actions"></div>
         `;
       }
 
@@ -453,8 +537,20 @@ import { ANIMATIONS, animationManager } from "./bg-animations.js";
       card.querySelector(".job-message").textContent = job.message || "";
       card.querySelector(".job-bar-fill").style.width = `${pct}%`;
       const statusEl = card.querySelector(".job-status");
-      statusEl.className = `job-status ${job.status}`;
-      statusEl.textContent = job.status;
+      const displayStatus = job.paused && job.status === "running" ? "paused" : job.status;
+      statusEl.className = `job-status ${displayStatus}`;
+      statusEl.textContent = displayStatus;
+
+      const actionsEl = card.querySelector(".job-actions");
+      const active = job.status === "queued" || job.status === "running";
+      actionsEl.innerHTML = active
+        ? `<button class="btn-secondary job-action-pause">${job.paused ? "Resume" : "Pause"}</button>
+           <button class="btn-secondary job-action-delete">Cancel</button>`
+        : `<button class="btn-secondary job-action-delete">Delete</button>`;
+      if (active) {
+        actionsEl.querySelector(".job-action-pause").addEventListener("click", () => toggleJobPause(job));
+      }
+      actionsEl.querySelector(".job-action-delete").addEventListener("click", () => deleteJob(job.id));
 
       card.querySelector(".job-summary").innerHTML = tracks.length
         ? `<span class="job-count done">${counts.done} done</span>` +
@@ -497,6 +593,27 @@ import { ANIMATIONS, animationManager } from "./bg-animations.js";
     container.querySelectorAll("[data-job-id]").forEach((card) => {
       if (!seenJobIds.has(card.dataset.jobId)) card.remove();
     });
+  }
+
+  async function toggleJobPause(job) {
+    try {
+      await api(`/api/downloads/${job.id}/${job.paused ? "resume" : "pause"}`, { method: "POST" });
+    } catch (err) {
+      alert(err.message || String(err));
+      return;
+    }
+    pollJobs();
+  }
+
+  async function deleteJob(jobId) {
+    try {
+      await api(`/api/downloads/${jobId}`, { method: "DELETE" });
+    } catch (err) {
+      alert(err.message || String(err));
+      return;
+    }
+    jobTrackRows.delete(jobId);
+    pollJobs();
   }
 
   async function pollJobs() {
