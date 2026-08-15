@@ -382,14 +382,7 @@ class DownloadRequest(BaseModel):
     selected_indices: Optional[list[int]] = None
 
 
-@app.post("/api/downloads")
-def start_download(req: DownloadRequest):
-    url = req.url.strip()
-    if not url:
-        raise HTTPException(400, "url is required")
-    if not (is_youtube_url(url) or is_spotify_url(url)):
-        raise HTTPException(400, "Only YouTube and Spotify URLs are supported")
-
+def _create_job(url: str, selected_indices: Optional[list[int]]) -> dict:
     job_id = uuid.uuid4().hex
     with _jobs_lock:
         _jobs[job_id] = {
@@ -406,12 +399,22 @@ def start_download(req: DownloadRequest):
             # single rolling message string for the whole job.
             "track_status": [],
             "paused": False,
-            "selected_indices": set(req.selected_indices) if req.selected_indices is not None else None,
+            "selected_indices": set(selected_indices) if selected_indices is not None else None,
         }
 
     thread = threading.Thread(target=_run_download_job, args=(job_id, url), daemon=True)
     thread.start()
     return _jobs[job_id]
+
+
+@app.post("/api/downloads")
+def start_download(req: DownloadRequest):
+    url = req.url.strip()
+    if not url:
+        raise HTTPException(400, "url is required")
+    if not (is_youtube_url(url) or is_spotify_url(url)):
+        raise HTTPException(400, "Only YouTube and Spotify URLs are supported")
+    return _create_job(url, req.selected_indices)
 
 
 class PreviewRequest(BaseModel):
@@ -493,6 +496,29 @@ def resume_job(job_id: str):
             raise HTTPException(404, "Job not found")
         job["paused"] = False
     return job
+
+
+@app.post("/api/downloads/{job_id}/retry")
+def retry_job(job_id: str):
+    """Start a new job for the same URL, limited to whichever tracks came
+    out failed or skipped last time — the search/download retry logic
+    already cuts most transient failures, but a track can still end up
+    genuinely stuck (e.g. YouTube throttling for the whole job's duration)
+    and deserves an easy way to try again without redownloading everything
+    that already succeeded."""
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if not job:
+            raise HTTPException(404, "Job not found")
+        if job["status"] in ("queued", "running"):
+            raise HTTPException(400, "Job is still running")
+        url = job["url"]
+        retry_indices = [
+            i for i, t in enumerate(job.get("track_status", [])) if t["status"] in ("failed", "skipped")
+        ]
+    if not retry_indices:
+        raise HTTPException(400, "No failed or skipped tracks to retry")
+    return _create_job(url, retry_indices)
 
 
 @app.delete("/api/downloads/{job_id}")

@@ -29,7 +29,15 @@ import { ANIMATIONS, animationManager } from "./bg-animations.js";
   // (withGlobalTauri is enabled solely in tauri.android.conf.json), so its
   // presence reliably distinguishes "running as the Android app" from
   // "running in a normal browser or the desktop app's window".
-  const IS_ANDROID_APP = typeof window !== "undefined" && !!window.__TAURI__;
+  // window.__TAURI__ exists on BOTH the Android app and the desktop Tauri
+  // shell (this build has withGlobalTauri enabled) — checking for it alone
+  // misidentifies desktop as Android, sending it down code paths that call
+  // an Android-only plugin command and hang forever (invoke() never
+  // resolves or rejects when the target plugin isn't registered). The
+  // user agent reliably distinguishes them: only the Android WebView
+  // reports "Android".
+  const IS_ANDROID_APP =
+    typeof window !== "undefined" && !!window.__TAURI__ && /Android/i.test(navigator.userAgent || "");
   const invoke = (cmd, payload) =>
     IS_ANDROID_APP ? window.__TAURI__.core.invoke(cmd, { payload }) : Promise.reject(new Error("not running as the Android app"));
 
@@ -543,12 +551,16 @@ import { ANIMATIONS, animationManager } from "./bg-animations.js";
 
       const actionsEl = card.querySelector(".job-actions");
       const active = job.status === "queued" || job.status === "running";
+      const retryable = counts.failed + counts.skipped;
       actionsEl.innerHTML = active
         ? `<button class="btn-secondary job-action-pause">${job.paused ? "Resume" : "Pause"}</button>
            <button class="btn-secondary job-action-delete">Cancel</button>`
-        : `<button class="btn-secondary job-action-delete">Delete</button>`;
+        : `${retryable ? `<button class="btn-secondary job-action-retry">Retry ${retryable} failed/skipped</button>` : ""}
+           <button class="btn-secondary job-action-delete">Delete</button>`;
       if (active) {
         actionsEl.querySelector(".job-action-pause").addEventListener("click", () => toggleJobPause(job));
+      } else if (retryable) {
+        actionsEl.querySelector(".job-action-retry").addEventListener("click", () => retryJob(job.id));
       }
       actionsEl.querySelector(".job-action-delete").addEventListener("click", () => deleteJob(job.id));
 
@@ -598,6 +610,16 @@ import { ANIMATIONS, animationManager } from "./bg-animations.js";
   async function toggleJobPause(job) {
     try {
       await api(`/api/downloads/${job.id}/${job.paused ? "resume" : "pause"}`, { method: "POST" });
+    } catch (err) {
+      alert(err.message || String(err));
+      return;
+    }
+    pollJobs();
+  }
+
+  async function retryJob(jobId) {
+    try {
+      await api(`/api/downloads/${jobId}/retry`, { method: "POST" });
     } catch (err) {
       alert(err.message || String(err));
       return;
