@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import threading
+import time
 from pathlib import Path
 from typing import List, Optional
 
@@ -215,37 +216,50 @@ class YouTubeSource:
         if self.config.overwrite:
             cmd.append("--force-overwrite")
 
-        # Run download
-        process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            env=_subprocess_env(),
-        )
-
+        # A single non-zero exit used to be treated as a permanent failure.
+        # In practice most failures on a long playlist run are transient
+        # (momentary YouTube throttling, network hiccup) and a retry
+        # succeeds — so give it a couple of extra tries (not on a genuine
+        # timeout though; that already waited the full budget once).
+        returncode = None
         timed_out = False
+        for attempt in range(3):
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                env=_subprocess_env(),
+            )
 
-        def _kill_on_timeout():
-            nonlocal timed_out
-            timed_out = True
-            process.kill()
+            timed_out = False
 
-        watchdog = threading.Timer(_DOWNLOAD_TIMEOUT, _kill_on_timeout)
-        watchdog.start()
-        try:
-            for line in process.stdout:
-                line = line.strip()
-                if line:
-                    if progress_callback:
-                        progress_callback(line)
-                    # Parse progress from yt-dlp output
-                    if "%" in line:
-                        console.print(f"  {line}")
+            def _kill_on_timeout():
+                nonlocal timed_out
+                timed_out = True
+                process.kill()
 
-            process.wait()
-        finally:
-            watchdog.cancel()
+            watchdog = threading.Timer(_DOWNLOAD_TIMEOUT, _kill_on_timeout)
+            watchdog.start()
+            try:
+                for line in process.stdout:
+                    line = line.strip()
+                    if line:
+                        if progress_callback:
+                            progress_callback(line)
+                        # Parse progress from yt-dlp output
+                        if "%" in line:
+                            console.print(f"  {line}")
+
+                process.wait()
+            finally:
+                watchdog.cancel()
+
+            returncode = process.returncode
+            if timed_out or returncode == 0:
+                break
+            if attempt < 2:
+                time.sleep(2 * (attempt + 1))
 
         if timed_out:
             print_error(f"Timed out downloading: {track.display_title}")
@@ -253,7 +267,7 @@ class YouTubeSource:
 
         # Even if yt-dlp returns non-zero, the file may have been downloaded
         # (e.g., due to warnings). Check for the file first.
-        if process.returncode != 0:
+        if returncode != 0:
             # Check if file was still downloaded despite the error
             expected_file = output_dir / f"{video_id}.{ext}"
             if not expected_file.exists():
@@ -349,14 +363,32 @@ class YouTubeSource:
             # baked into the search spec itself (ytsearchN:).
             f"ytsearch{max_results}:{query}",
         ]
-        try:
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, env=_subprocess_env(), timeout=_METADATA_TIMEOUT
-            )
-        except subprocess.TimeoutExpired:
-            print_error(f"Search timed out for: {query}")
-            return []
-        if result.returncode != 0:
+        # A failed search used to be reported back as "Not found" —
+        # indistinguishable from a track that genuinely doesn't exist on
+        # YouTube. In practice, on a long playlist run, most failures here
+        # are transient (network hiccup, momentary YouTube throttling) and
+        # a single retry succeeds. Retry a couple of times with backoff
+        # before giving up, and log the real reason on final failure so
+        # "not found" in the UI isn't a red herring for a network blip.
+        result = None
+        last_stderr = ""
+        for attempt in range(3):
+            try:
+                result = subprocess.run(
+                    cmd, capture_output=True, text=True, env=_subprocess_env(), timeout=_METADATA_TIMEOUT
+                )
+            except subprocess.TimeoutExpired:
+                last_stderr = "timed out"
+                result = None
+            else:
+                if result.returncode == 0:
+                    break
+                last_stderr = (result.stderr or "").strip().splitlines()[-1] if result.stderr else ""
+                result = None
+            if attempt < 2:
+                time.sleep(2 * (attempt + 1))
+        if result is None:
+            print_error(f"Search failed for: {query} ({last_stderr or 'unknown error'})")
             return []
 
         tracks = []
